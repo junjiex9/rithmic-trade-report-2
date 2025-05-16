@@ -87,10 +87,104 @@ tabs = st.tabs(['报告视图','数据导出','⚙️ 设置'])
 
 # 1. 报告视图
 with tabs[0]:
-    # ... (report view code unchanged)
-    pass
+    st.subheader('📈 累计盈亏趋势')
+    fig1 = px.line(df, x='时间', y='累计盈亏')
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.subheader('📊 日盈亏 & 小时盈亏')
+    fig2 = px.bar(df.groupby('日期')['盈亏'].sum().reset_index(), x='日期', y='盈亏', title='日盈亏')
+    fig3 = px.bar(df.groupby('小时')['盈亏'].mean().reset_index(), x='小时', y='盈亏', title='小时盈亏')
+    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig3, use_container_width=True)
+
+    st.subheader('⏳ 持仓时长分布（分钟）')
+    sorted_df = df.sort_values(['账户','品种','时间'])
+    sorted_df['持仓时长'] = sorted_df.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
+    fig4 = px.box(sorted_df, x='账户', y='持仓时长', title='按账户')
+    fig5 = px.box(sorted_df, x='品种', y='持仓时长', title='按品种')
+    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig5, use_container_width=True)
+
+    st.subheader('🎲 Monte Carlo 模拟')
+    sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
+    fig6 = px.histogram(sims, nbins=40, title='Monte Carlo 分布')
+    st.plotly_chart(fig6, use_container_width=True)
+
+    if market_file:
+        st.subheader('🕳️ 滑点分析')
+        mp = pd.read_csv(market_file)
+        mp['Time'] = pd.to_datetime(mp['Time'], errors='coerce')
+        mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True)
+        merged = df.merge(mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left')
+        merged['滑点'] = merged['价格'] - merged['市场价格']
+        fig7 = px.histogram(merged, x='滑点', title='滑点分布')
+        st.plotly_chart(fig7, use_container_width=True)
+
+    if sent_file:
+        st.subheader('📣 舆情热力图')
+        ds = pd.read_csv(sent_file)
+        ds['Date'] = pd.to_datetime(ds['Date'], errors='coerce').dt.date
+        heat = ds.pivot_table(values='SentimentScore', index='Symbol', columns='Date')
+        fig8 = px.imshow(heat, aspect='auto', title='舆情热力图')
+        st.plotly_chart(fig8, use_container_width=True)
+
+    st.subheader('📌 核心指标')
+    sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(st.session_state.get('lookback_days', DEFAULT_LOOKBACK))
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
+    c1.metric('夏普率', f"{sharpe:.2f}")
+    c2.metric('胜率', f"{winrate:.2%}")
+    c3.metric('盈亏比', f"{pf:.2f}")
+    c4.metric('最大回撤', f"{mdd:.2f}")
+    c5.metric('回撤(天)', f"{recent_dd:.2f}")
+    c6.metric('Calmar', f"{calmar:.2f}")
 
 # 2. 数据导出
+with tabs[1]:
+    st.subheader('📤 数据导出')
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Trades', index=False)
+        daily = df.groupby('日期')['盈亏'].sum().reset_index()
+        daily.to_excel(writer, sheet_name='Daily PnL', index=False)
+        hourly = df.groupby('小时')['盈亏'].mean().reset_index()
+        hourly.to_excel(writer, sheet_name='Hourly PnL', index=False)
+        sorted_df[['账户','品种','持仓时长']].to_excel(writer, sheet_name='Holding Time', index=False)
+        pd.DataFrame({'Simulation PnL': sims}).to_excel(writer, sheet_name='Monte Carlo', index=False)
+        metrics_df = pd.DataFrame({
+            '指标':['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar'],
+            '数值':[len(df), df['盈亏'].sum(), sharpe, winrate, pf, mdd, calmar]
+        })
+        metrics_df.to_excel(writer, sheet_name='Metrics', index=False)
+    st.download_button('下载 Excel (.xlsx)', excel_buffer.getvalue(), 'detailed_report.xlsx')
+    
+    # PDF 导出
+    pdf = FPDF('P','mm','A4')
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.alias_nb_pages()
+    # 封面
+    pdf.add_page()
+    pdf.set_font('Arial','B',20)
+    pdf.cell(0,60,'',ln=1)
+    pdf.cell(0,10,'Automated Trading Report',ln=1,align='C')
+    pdf.set_font('Arial','',12)
+    pdf.cell(0,10,f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
+    # Core Metrics
+    pdf.add_page()
+    pdf.set_font('Arial','B',16)
+    pdf.cell(0,10,'Core Metrics',ln=1)
+    pdf.set_font('Arial','',12)
+    for _, row in metrics_df.iterrows():
+        pdf.cell(50,8,str(row['指标']))
+        pdf.cell(0,8,str(row['数值']),ln=1)
+    # Monte Carlo图
+    pdf.add_page()
+    mc_fig = px.histogram(sims, nbins=40)
+    mc_img = mc_fig.to_image(format='png', width=600, height=300)
+    pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
+    pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+    st.download_button('下载 PDF 报告', pdf_bytes, 'detailed_report.pdf')
+
+# 3. 设置
 with tabs[1]:
     # ... (data export code unchanged)
     pass
