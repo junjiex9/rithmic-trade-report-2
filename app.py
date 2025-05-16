@@ -138,72 +138,73 @@ with tabs[0]:
     cols[5].metric('Calmar 比率', f"{calmar:.2f}")
 
 with tabs[1]:
-    # 导出 Excel
-    if st.button('导出 Excel (.xlsx)'):
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='openpyxl') as w:
-            df.to_excel(w, sheet_name='Trades', index=False)
-            metrics = pd.DataFrame({
-                '指标':['夏普比率','胜率','盈亏比','最大回撤',
-                        f'{lookback_days}天回撤','Calmar 比率'],
-                '数值':[sharpe,winrate,profit_factor,mdd,
-                        recent_dd,calmar]
-            })
-            metrics.to_excel(w, sheet_name='Metrics', index=False)
-        st.download_button('下载 Excel', buf.getvalue(),
-                           file_name='report.xlsx')
-    # 导出 PDF
-    if st.button('导出 PDF 报告'):
-        pdf = FPDF('P','mm','A4')
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.alias_nb_pages()
-        # 封面
-        pdf.add_page()
-        pdf.set_font('Arial','B',24)
-        pdf.cell(0,60,'',ln=1)
-        pdf.cell(0,10,'📈 交易分析报告',ln=1,align='C')
-        pdf.set_font('Arial','',12)
-        pdf.cell(0,10,f'生成时间：{datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
-        # 目录
-        pdf.add_page()
-        pdf.set_font('Arial','B',16)
-        pdf.cell(0,10,'目录',ln=1)
-        pdf.set_font('Arial','',12)
-        for i, (title, _) in enumerate(sections+ [('📌 核心统计指标', [])], 1):
-            pdf.cell(0,8,f'{i}. {title}',ln=1)
-        # 内容
-        for title, figs in sections:
-            pdf.add_page()
-            pdf.set_font('Arial','B',14)
-            pdf.cell(0,10,title,ln=1)
-            for fig in figs:
-                img = fig.to_image(format='png', width=600, height=300)
-                pdf.image(io.BytesIO(img), x=15, y=pdf.get_y()+5, w=180)
-        # 核心指标页
+    st.subheader('📤 数据导出')
+    # 预生成 Excel
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as w:
+        df.to_excel(w, sheet_name='Trades', index=False)
+        metrics = pd.DataFrame({
+            '指标':['夏普比率','胜率','盈亏比','最大回撤',
+                    f'{lookback_days}天回撤','Calmar 比率'],
+            '数值':[sharpe,winrate,profit_factor,mdd,
+                    recent_dd,calmar]
+        })
+        metrics.to_excel(w, sheet_name='Metrics', index=False)
+    excel_bytes = buf.getvalue()
+    st.download_button('下载 Excel (.xlsx)', excel_bytes, file_name='report.xlsx')
+
+    # 预生成 PDF
+    pdf = FPDF('P','mm','A4')
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.alias_nb_pages()
+    # 封面
+    pdf.add_page()
+    pdf.set_font('Arial','B',24)
+    pdf.cell(0,60,'',ln=1)
+    pdf.cell(0,10,'📈 交易分析报告',ln=1,align='C')
+    pdf.set_font('Arial','',12)
+    pdf.cell(0,10,f'生成时间：{datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
+    # 目录
+    pdf.add_page()
+    pdf.set_font('Arial','B',16)
+    pdf.cell(0,10,'目录',ln=1)
+    pdf.set_font('Arial','',12)
+    for i, (title, _) in enumerate(sections + [('📌 核心统计指标', [])], 1):
+        pdf.cell(0,8,f'{i}. {title}',ln=1)
+    # 内容
+    for title, figs in sections:
         pdf.add_page()
         pdf.set_font('Arial','B',14)
-        pdf.cell(0,10,'📌 核心统计指标',ln=1)
-        pdf.set_font('Arial','',12)
-        items = [
-            ('夏普比率', f"{sharpe:.2f}"),
-            ('胜率', f"{winrate:.2%}"),
-            ('盈亏比', f"{profit_factor:.2f}"),
-            ('最大回撤', f"{mdd:.2f}"),
-            (f"{lookback_days}天回撤", f"{recent_dd:.2f}"),
-            ('Calmar 比率', f"{calmar:.2f}")
-        ]
-        for name, val in items:
-            pdf.cell(60,8,name)
-            pdf.cell(0,8,val,ln=1)
-        # 页脚
-        total_pages = pdf.page_no()
-        for p in range(1, total_pages+1):
-            pdf.page = p
-            pdf.set_y(-15)
-            pdf.set_font('Arial','I',8)
-            pdf.cell(0,10,f'第 {p}/{total_pages} 页',align='C')
-        data = pdf.output(dest='S').encode('latin1')
-        st.download_button('下载 PDF', data, 'report.pdf')
+        pdf.cell(0,10,title,ln=1)
+        for fig in figs:
+            img = fig.to_image(format='png', width=600, height=300)
+            pdf.image(io.BytesIO(img), x=15, y=pdf.get_y()+5, w=180)
+    # 核心指标页
+    pdf.add_page()
+    pdf.set_font('Arial','B',14)
+    pdf.cell(0,10,'📌 核心统计指标',ln=1)
+    pdf.set_font('Arial','',12)
+    items = [
+        ('夏普比率', f"{sharpe:.2f}"),
+        ('胜率', f"{winrate:.2%}"),
+        ('盈亏比', f"{profit_factor:.2f}"),
+        ('最大回撤', f"{mdd:.2f}"),
+        (f"{lookback_days}天回撤", f"{recent_dd:.2f}"),
+        ('Calmar 比率', f"{calmar:.2f}")
+    ]
+    for name, val in items:
+        pdf.cell(60,8,name)
+        pdf.cell(0,8,val,ln=1)
+    # 页脚
+    total_pages = pdf.page_no()
+    for p in range(1, total_pages+1):
+        pdf.page = p
+        pdf.set_y(-15)
+        pdf.set_font('Arial','I',8)
+        pdf.cell(0,10,f'第 {p}/{total_pages} 页',align='C')
+    pdf_bytes = pdf.output(dest='S').encode('latin1')
+    st.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf')
+
 with tabs[2]:
     st.subheader('⚙️ 设置')
     st.write('缓存天数、快照保留、回撤回溯期等参数。')
