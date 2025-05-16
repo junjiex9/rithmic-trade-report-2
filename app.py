@@ -127,7 +127,7 @@ if uploaded:
         else:
             df['Slippage'] = np.nan
 
-        # 持仓时长分析
+        # 持仓时长分布
         df_sorted = df.copy()
         df_sorted['HoldTime'] = df_sorted.groupby(['Account','Symbol'])['Time'].diff().dt.total_seconds() / 60
 
@@ -180,13 +180,15 @@ if uploaded:
                 df.groupby('Hour')['PnL'].mean().to_excel(ew, sheet_name='HourlyPL')
                 df.groupby('Account')['PnL'].agg(['sum','count','mean','std']).to_excel(ew, sheet_name='AccountStats')
                 df.groupby('Symbol')['PnL'].agg(['sum','count','mean','std']).to_excel(ew, sheet_name='SymbolStats')
-                df.assign(Month=df['Time'].dt.to_period('M')).groupby('Month')['PnL']
-                    .sum()
-                    .to_frame()
-                    .to_excel(ew, sheet_name='MonthlyPL')
+                monthly = (df.assign(Month=df['Time'].dt.to_period('M'))
+                            .groupby('Month')['PnL']
+                            .sum()
+                            .to_frame())
+                monthly.to_excel(ew, sheet_name='MonthlyPL')
                 df_sorted[['Account','Symbol','HoldTime']].dropna().to_excel(ew, sheet_name='Durations', index=False)
                 pd.DataFrame(metrics, index=[0]).T.reset_index(names=['Metric','Value']).to_excel(ew, sheet_name='Summary', index=False)
             st.download_button('Download Excel Report', buf_xlsx.getvalue(), file_name=f'Report_{now}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            
             st.subheader('📄 导出PDF报告（详细表格与图像）')
             if pdf_available and st.button('Download PDF Report'):
                 pdf = FPDF()
@@ -196,8 +198,8 @@ if uploaded:
                 pdf.cell(0,10,'交易分析报告', ln=True, align='C')
                 pdf.ln(5)
                 pdf.set_font('Arial','',12)
-                pdf.cell(0,8,f'生成时间: {now}', ln=True)
-                pdf.cell(0,8,f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
+                pdf.cell(0,8, f'生成时间: {now}', ln=True)
+                pdf.cell(0,8, f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
                 pdf.ln(5)
                 buf_pdf = io.BytesIO()
                 pdf.output(buf_pdf)
