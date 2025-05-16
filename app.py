@@ -128,7 +128,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader('📤 数据导出')
     col_excel, col_pdf = st.columns(2)
-    # 下载 Excel
+        # 下载 Excel
     excel_buf = io.BytesIO()
     with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Trades', index=False)
@@ -137,40 +137,38 @@ with tabs[1]:
             '数值': [len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
         }).to_excel(writer, sheet_name='Metrics', index=False)
     col_excel.download_button('下载 Excel (.xlsx)', excel_buf.getvalue(), file_name='report.xlsx')
-    # 下载 PDF
-    sims_pdf = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
-    pdf = FPDF('P','mm','A4')
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.alias_nb_pages()
-    pdf.add_page()
-    pdf.set_font('Arial','B',20)
-    pdf.cell(0,60,'',ln=1)
-    pdf.cell(0,10,'Automated Trading Report',ln=1,align='C')
-    pdf.set_font('Arial','',12)
-    pdf.cell(0,10,f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
-    pdf.add_page()
-    pdf.set_font('Arial','B',16)
-    pdf.cell(0,10,'Core Metrics',ln=1)
-    pdf.set_font('Arial','',12)
-    for _,row in pd.DataFrame({
-        '指标':['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar','回撤(天)'],
-        '数值':[len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
-    }).iterrows():
-        pdf.cell(50,8,str(row['指标'])); pdf.cell(0,8,str(row['数值']),ln=1)
-    pdf.add_page()
-    mc_img = px.histogram(sims_pdf, nbins=40).to_image(format='png', width=600, height=300)
-    pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
-    pdf_bytes = pdf.output(dest='S').encode('latin-1','ignore')
-    col_pdf.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf')
 
-# 3. 设置
-with tabs[2]:
-    st.subheader('⚙️ 设置')
-    cache_days = st.number_input('缓存天数（天）', min_value=1, value=cache_days)
-    max_snapshots = st.number_input('保留快照份数', min_value=1, value=max_snapshots)
-    lookback_days = st.slider('回撤回溯期 (天)', 1, 60, value=lookback_days)
-    # 写回会话状态
-    st.session_state['cache_days'] = cache_days
-    st.session_state['max_snapshots'] = max_snapshots
-    st.session_state['lookback_days'] = lookback_days
-    st.sidebar.success(f"参数已更新：缓存 {cache_days} 天，保留快照 {max_snapshots} 份，回撤回溯期 {lookback_days} 天。请刷新以生效。")
+    # 下载 PDF 报告
+    with col_pdf:
+        sims_pdf = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
+        pdf = FPDF('P','mm','A4')
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.alias_nb_pages()
+        # 使用系统自带编码兼容的字体，并全英文内容避免编码异常
+        pdf.set_font('Helvetica', '', 12)
+        # 封面
+        pdf.add_page()
+        pdf.cell(0,60,'', ln=1)
+        pdf.set_font('Helvetica', 'B', 16)
+        pdf.cell(0,10, 'Automated Trading Analysis Report', ln=1, align='C')
+        pdf.set_font('Helvetica', '', 10)
+        pdf.cell(0,10, f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}', ln=1, align='C')
+        # Core Metrics
+        pdf.add_page()
+        pdf.set_font('Helvetica', 'B', 14)
+        pdf.cell(0,10, 'Core Metrics', ln=1)
+        pdf.set_font('Helvetica', '', 12)
+        english_labels = ['Total Trades', 'Total P/L', 'Sharpe Ratio', 'Win Rate', 'Profit Factor', 'Max Drawdown', 'Calmar Ratio', 'Recent Drawdown']
+        values = [len(df), df['盈亏'].sum()] + list(compute_metrics(lookback_days))
+        for label, val in zip(english_labels, values):
+            pdf.cell(60,8, label)
+            pdf.cell(0,8, f"{val:.2f}" if isinstance(val, float) else str(val), ln=1)
+        # Monte Carlo Distribution
+        pdf.add_page()
+        pdf.set_font('Helvetica', 'B', 14)
+        pdf.cell(0,10, 'Monte Carlo Distribution', ln=1)
+        pdf.set_font('Helvetica', '', 12)
+        mc_img = px.histogram(sims_pdf, nbins=40).to_image(format='png', width=600, height=300)
+        pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
+        pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+        col_pdf.download_button('Download PDF Report', pdf_bytes, file_name='report.pdf', mime='application/pdf')
