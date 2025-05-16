@@ -92,6 +92,20 @@ def manage_snapshots(df):
 
 manage_snapshots(df)
 
+# 风险阈值预警
+st.sidebar.header('⚠️ 风险阈值预警')
+# 单笔最大亏损阈值（负数代表亏损）
+max_loss = st.sidebar.number_input('单笔最大亏损', value=-100.0)
+# 日内最大交易次数阈值
+max_trades = st.sidebar.number_input('日内最大交易次数', value=50)
+# 检测并展示警告
+if '盈亏' in df.columns:
+    if df['盈亏'].min() < max_loss:
+        st.warning(f"⚠️ 存在单笔盈亏低于阈值 ({max_loss})！最小盈亏：{df['盈亏'].min():.2f}")
+    today_trades = df[df['时间'].dt.date == datetime.today().date()].shape[0]
+    if today_trades > max_trades:
+        st.warning(f"⚠️ 今日交易次数 {today_trades} 超过阈值 ({max_trades})！")
+
 # 衍生字段
 df['累计盈亏'] = df['盈亏'].cumsum()
 df['日期'] = df['时间'].dt.date
