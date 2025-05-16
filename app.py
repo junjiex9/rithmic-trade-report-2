@@ -8,14 +8,14 @@ from fpdf import FPDF
 
 # ============ 页面配置 ============
 st.set_page_config(
-    page_title="📈 RITHMIC 自动化交易分析报告生成器",
+    page_title="📈 Rithmic 自动化交易分析报告生成器",
     layout="wide",
     initial_sidebar_state="expanded",
     page_icon="📊"
 )
 
 # ============ 多语言支持 ============
-LANG = {'中文': '📈 RITHMIC 自动化交易分析报告生成器', 'English': '📈 Automated Trading Report Generator'}
+LANG = {'中文': '📈 Rithmic 自动化交易分析报告生成器', 'English': '📈 Automated Trading Report Generator'}
 lang = st.sidebar.selectbox('语言 / Language', list(LANG.keys()))
 st.title(LANG[lang])
 
