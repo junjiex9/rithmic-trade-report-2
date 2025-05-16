@@ -195,6 +195,7 @@ if uploaded:
                 pdf.cell(0,10,'交易分析报告',ln=True,align='C')
                 pdf.ln(5)
                 pdf.set_font('Arial','',12)
-                pdf.cell(0,8,f'生成时间: {now}',ln=True)
+                pdf.cell(0,8,f'生成时间: {now}', ln=True)
+                pdf.cell(0,8,f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
                 pdf.cell(0,8,f'Total PnL: {total`
 }]}
