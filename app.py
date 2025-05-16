@@ -139,6 +139,81 @@ with tabs[1]:
         # 原始交易数据
         df.to_excel(writer, sheet_name='Trades', index=False)
         # 核心指标
+        sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(
+            st.session_state.get('lookback_days', DEFAULT_LOOKBACK)
+        )
+        metrics_df = pd.DataFrame({
+            '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar'],
+            '数值': [len(df), df['盈亏'].sum(), sharpe, winrate, pf, mdd, calmar]
+        })
+        metrics_df.to_excel(writer, sheet_name='Metrics', index=False)
+        # 日/小时 盈亏
+        daily = df.groupby('日期')['盈亏'].sum().reset_index()
+        daily.to_excel(writer, sheet_name='Daily PnL', index=False)
+        hourly = df.groupby('小时')['盈亏'].mean().reset_index()
+        hourly.to_excel(writer, sheet_name='Hourly PnL', index=False)
+        # 持仓时长
+        df_sorted = df.sort_values(['账户','品种','时间'])
+        df_sorted['持仓时长（分）'] = (
+            df_sorted.groupby(['账户','品种'])['时间']
+            .diff().dt.total_seconds()/60
+        )
+        df_sorted[['账户','品种','持仓时长（分）']].to_excel(
+            writer, sheet_name='Holding Time', index=False
+        )
+        # Monte Carlo 模拟结果
+        sims = [
+            np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1]
+            for _ in range(500)
+        ]
+        pd.DataFrame({'Simulation PnL': sims}).to_excel(
+            writer, sheet_name='Monte Carlo', index=False
+        )
+    st.download_button(
+        '下载 Excel (.xlsx)', excel_buffer.getvalue(), file_name='detailed_report.xlsx'
+    )
+
+    # 导出 PDF，包含指标表格和图表
+    # 确保 sims 已定义
+    pdf = FPDF('P','mm','A4')
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.alias_nb_pages()
+    # 封面
+    pdf.add_page()
+    pdf.set_font('Arial','B',20)
+    pdf.cell(0,60,'', ln=1)
+    pdf.cell(0,10,'交易分析报告', ln=1, align='C')
+    pdf.set_font('Arial','',12)
+    pdf.cell(
+        0,10, f'生成时间：{datetime.now():%Y-%m-%d %H:%M:%S}', ln=1, align='C'
+    )
+    # 核心指标
+    pdf.add_page()
+    pdf.set_font('Arial','B',16)
+    pdf.cell(0,10,'核心统计指标', ln=1)
+    pdf.set_font('Arial','',12)
+    for _, row in metrics_df.iterrows():
+        pdf.cell(50,8,str(row['指标']))
+        pdf.cell(0,8,str(row['数值']), ln=1)
+    # Monte Carlo 图
+    pdf.add_page()
+    mc_fig = px.histogram(sims, nbins=40)
+    mc_img = mc_fig.to_image(format='png', width=600, height=300)
+    pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
+    # 导出按钮
+    pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+    st.download_button(
+        '下载 PDF 报告', pdf_bytes, file_name='detailed_report.pdf'
+    )
+
+# 3. 设置[1]:
+    st.subheader('📤 数据导出')
+    # 导出 Excel，多表格
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        # 原始交易数据
+        df.to_excel(writer, sheet_name='Trades', index=False)
+        # 核心指标
         sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(st.session_state.get('lookback_days', DEFAULT_LOOKBACK))
         metrics_df = pd.DataFrame({
             '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar'],
@@ -162,49 +237,48 @@ with tabs[1]:
         pd.DataFrame({'Simulation PnL': sims}).to_excel(writer, sheet_name='Monte Carlo', index=False)
     st.download_button('下载 Excel (.xlsx)', excel_buffer.getvalue(), file_name='detailed_report.xlsx')
 
-    # 导出 PDF，包含指标表格
+        # 导出 PDF，包含指标表格
+    # 重新计算指标表格
+    sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(st.session_state.get('lookback_days', DEFAULT_LOOKBACK))
+    metrics_df = pd.DataFrame({
+        '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar'],
+        '数值': [len(df), df['盈亏'].sum(), sharpe, winrate, pf, mdd, calmar]
+    })
     pdf = FPDF('P','mm','A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.alias_nb_pages()
+    # 使用 UTF-8 支持：删除表情，使用默认字体（仅支持 Latin; 中文可能需要额外字体）
     # 封面
     pdf.add_page()
-    pdf.set_font('Arial','B',24)
+    pdf.set_font('Arial','B',20)
     pdf.cell(0,60,'',ln=1)
-    pdf.cell(0,10,'📈 交易分析报告',ln=1,align='C')
+    pdf.cell(0,10,'交易分析报告',ln=1,align='C')
     pdf.set_font('Arial','',12)
     pdf.cell(0,10,f'生成时间：{datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
     # 核心指标
     pdf.add_page()
     pdf.set_font('Arial','B',16)
-    pdf.cell(0,10,'📌 核心统计指标',ln=1)
+    pdf.cell(0,10,'核心统计指标',ln=1)
     pdf.set_font('Arial','',12)
-    for i, row in metrics_df.iterrows():
-        pdf.cell(50,8,f"{row['指标']}")
-        pdf.cell(0,8,f"{row['数值']}",ln=1)
-    # 日盈亏表格
+    for _, row in metrics_df.iterrows():
+        pdf.cell(50,8,str(row['指标']))
+        pdf.cell(0,8,str(row['数值']),ln=1)
+    # 日度盈亏
+    daily = df.groupby('日期')['盈亏'].sum().reset_index()
     pdf.add_page()
     pdf.set_font('Arial','B',16)
-    pdf.cell(0,10,'📊 日度盈亏',ln=1)
+    pdf.cell(0,10,'日度盈亏（前10条）',ln=1)
     pdf.set_font('Arial','',10)
-    # 绘制前10日
     for _, r in daily.head(10).iterrows():
         pdf.cell(40,6,str(r['日期']))
         pdf.cell(0,6,f"{r['盈亏']:.2f}",ln=1)
-    # Monte Carlo 图
+    # Monte Carlo 分布
     pdf.add_page()
     pdf.set_font('Arial','B',16)
-    pdf.cell(0,10,'🎲 Monte Carlo 模拟分布',ln=1)
+    pdf.cell(0,10,'Monte Carlo 模拟分布',ln=1)
     mc_fig = px.histogram(sims, nbins=40)
     mc_img = mc_fig.to_image(format='png', width=600, height=300)
     pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
-    # 输出 PDF
-    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+    # 下载按钮
+    pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
     st.download_button('下载 PDF 报告', pdf_bytes, file_name='detailed_report.pdf')
-
-# 3. 设置
-with tabs[2]:
-    st.subheader('⚙️ 设置')
-    st.session_state['cache_days'] = st.number_input('缓存天数', min_value=1, value=DEFAULT_CACHE_DAYS)
-    st.session_state['max_snapshots'] = st.number_input('保留快照', min_value=1, value=DEFAULT_MAX_SNAPSHOTS)
-    st.session_state['lookback_days'] = st.slider('回撤回溯期', 1, 60, DEFAULT_LOOKBACK)
-    st.write('修改后请刷新生效')
