@@ -141,8 +141,8 @@ with tabs[1]:
         with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Trades', index=False)
             metrics = pd.DataFrame({
-                '指标':['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar'],
-                '数值':[
+                '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar','回撤(天)'],
+                '数值': [
                     len(df), df['盈亏'].sum(), *compute_metrics(st.session_state['lookback_days'])
                 ]
             })
