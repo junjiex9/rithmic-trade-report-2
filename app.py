@@ -115,18 +115,67 @@ tabs = st.tabs(['报告视图','数据导出','⚙️ 设置'])
 
 # 1. 报告视图
 with tabs[0]:
+    # 1️⃣ 累计盈亏趋势
     st.subheader('📈 累计盈亏趋势')
-    st.plotly_chart(px.line(df, x='时间', y='累计盈亏'), use_container_width=True)
-    # 其他图表...
-    st.subheader('📌 核心指标')
+    fig1 = px.line(df, x='时间', y='累计盈亏', title='累计盈亏趋势')
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # 2️⃣ 日/小时盈亏
+    st.subheader('📊 日/小时盈亏')
+    fig2 = px.bar(df.groupby('日期')['盈亏'].sum().reset_index(), x='日期', y='盈亏', title='每日盈亏')
+    fig3 = px.bar(df.groupby('小时')['盈亏'].mean().reset_index(), x='小时', y='盈亏', title='每小时平均盈亏')
+    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig3, use_container_width=True)
+
+    # 3️⃣ 持仓时长分布
+    st.subheader('⏳ 持仓时长分布（分钟）')
+    sorted_df = df.sort_values(['账户','品种','时间'])
+    sorted_df['持仓时长'] = sorted_df.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
+    fig4 = px.box(sorted_df, x='账户', y='持仓时长', title='按账户')
+    fig5 = px.box(sorted_df, x='品种', y='持仓时长', title='按品种')
+    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig5, use_container_width=True)
+
+    # 4️⃣ Monte Carlo 模拟
+    st.subheader('🎲 Monte Carlo 模拟')
+    sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
+    fig6 = px.histogram(sims, nbins=40, title='Monte Carlo 累积盈亏分布')
+    st.plotly_chart(fig6, use_container_width=True)
+
+    # 5️⃣ 滑点与成交率分析
+    if market_file:
+        st.subheader('🕳️ 滑点与成交率分析')
+        mp = pd.read_csv(market_file)
+        mp['Time'] = pd.to_datetime(mp['Time'], errors='coerce')
+        mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True)
+        merged = df.merge(mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left')
+        merged['滑点'] = merged['价格'] - merged['市场价格']
+        fig7 = px.histogram(merged, x='滑点', nbins=50, title='滑点分布')
+        st.plotly_chart(fig7, use_container_width=True)
+    else:
+        st.info('请上传市场快照 CSV 以查看滑点分析')
+
+    # 6️⃣ 社交舆情热力图
+    if sent_file:
+        st.subheader('📣 社交舆情热力图')
+        ds = pd.read_csv(sent_file)
+        ds['Date'] = pd.to_datetime(ds['Date'], errors='coerce').dt.date
+        heat = ds.pivot_table(values='SentimentScore', index='Symbol', columns='Date', aggfunc='mean')
+        fig8 = px.imshow(heat, aspect='auto', title='舆情热力图')
+        st.plotly_chart(fig8, use_container_width=True)
+    else:
+        st.info('请上传舆情数据 CSV 以查看热力图')
+
+    # 核心统计指标
+    st.subheader('📌 核心统计指标')
     sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(lookback_days)
-    c1,c2,c3,c4,c5,c6 = st.columns(6)
-    c1.metric('夏普率', f"{sharpe:.2f}")
-    c2.metric('胜率', f"{winrate:.2%}")
-    c3.metric('盈亏比', f"{pf:.2f}")
-    c4.metric('最大回撤', f"{mdd:.2f}")
-    c5.metric('回撤(天)', f"{recent_dd:.2f}")
-    c6.metric('Calmar', f"{calmar:.2f}")
+    cols = st.columns(6)
+    cols[0].metric('夏普率', f"{sharpe:.2f}")
+    cols[1].metric('胜率', f"{winrate:.2%}")
+    cols[2].metric('盈亏比', f"{pf:.2f}")
+    cols[3].metric('最大回撤', f"{mdd:.2f}")
+    cols[4].metric(f'{lookback_days}天回撤', f"{recent_dd:.2f}")
+    cols[5].metric('Calmar 比率', f"{calmar:.2f}")
 
 # 2. 数据导出
 with tabs[1]:
