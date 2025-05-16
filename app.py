@@ -29,16 +29,20 @@ for key, default in [('cache_days', DEFAULT_CACHE_DAYS), ('max_snapshots', DEFAU
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ============ 侧边栏上传与设置 ============
+# ============ 侧边栏上传 ============
 st.sidebar.header('📁 上传与设置')
 uploaded = st.sidebar.file_uploader('上传交易 CSV', type='csv', accept_multiple_files=True)
 market_file = st.sidebar.file_uploader('市场快照 CSV', type='csv')
 sent_file = st.sidebar.file_uploader('舆情数据 CSV', type='csv')
 
-# 读取设置
-cache_days = st.session_state['cache_days']
-max_snapshots = st.session_state['max_snapshots']
-lookback_days = st.session_state['lookback_days']
+# 读取动态设置
+cache_days = st.sidebar.number_input('缓存天数（天）', min_value=1, value=st.session_state['cache_days'])
+max_snapshots = st.sidebar.number_input('保留快照份数', min_value=1, value=st.session_state['max_snapshots'])
+lookback_days = st.sidebar.slider('回撤回溯期 (天)', 1, 60, value=st.session_state['lookback_days'])
+# 写回会话状态
+st.session_state['cache_days'] = cache_days
+st.session_state['max_snapshots'] = max_snapshots
+st.session_state['lookback_days'] = lookback_days
 
 if not uploaded:
     st.sidebar.info('请上传交易CSV以开始。')
@@ -85,7 +89,7 @@ def manage_snapshots(df):
         for old in snaps[:-max_snapshots]:
             os.remove(os.path.join(SNAP_DIR, old))
     st.sidebar.success(f"已加载 {len(df)} 条交易，快照：{snap_file}")
-    return
+
 manage_snapshots(df)
 
 # 衍生字段
@@ -93,7 +97,7 @@ df['累计盈亏'] = df['盈亏'].cumsum()
 df['日期'] = df['时间'].dt.date
 df['小时'] = df['时间'].dt.hour
 
-# 计算指标
+# 指标计算
 def compute_metrics(lookback):
     period_days = max((df['时间'].max() - df['时间'].min()).days, 1)
     total_pl = df['盈亏'].sum()
@@ -113,7 +117,7 @@ tabs = st.tabs(['报告视图','数据导出','⚙️ 设置'])
 with tabs[0]:
     st.subheader('📈 累计盈亏趋势')
     st.plotly_chart(px.line(df, x='时间', y='累计盈亏'), use_container_width=True)
-    # 其他图表略...
+    # 其他图表...
     st.subheader('📌 核心指标')
     sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(lookback_days)
     c1,c2,c3,c4,c5,c6 = st.columns(6)
@@ -128,51 +132,68 @@ with tabs[0]:
 with tabs[1]:
     st.subheader('📤 数据导出')
     col_excel, col_pdf = st.columns(2)
-        # 下载 Excel
-    excel_buf = io.BytesIO()
-    with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Trades', index=False)
-        pd.DataFrame({
-            '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar','回撤(天)'],
-            '数值': [len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
-        }).to_excel(writer, sheet_name='Metrics', index=False)
-    col_excel.download_button('下载 Excel (.xlsx)', excel_buf.getvalue(), file_name='report.xlsx')
 
-        # 下载 PDF 报告
+    # 下载 Excel (.xlsx)
+    with col_excel:
+        excel_buf = io.BytesIO()
+        with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Trades', index=False)
+            pd.DataFrame({
+                '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar','回撤(天)'],
+                '数值': [len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
+            }).to_excel(writer, sheet_name='Metrics', index=False)
+        st.download_button(
+            label='下载 Excel (.xlsx)',
+            data=excel_buf.getvalue(),
+            file_name='report.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    # 下载 PDF 报告
     with col_pdf:
         sims_pdf = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
         pdf = FPDF('P','mm','A4')
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.alias_nb_pages()
-        # 使用系统自带编码兼容字体，全部英文
         pdf.set_font('Helvetica', '', 12)
-        # 封面
         pdf.add_page()
         pdf.cell(0,60, '', ln=1)
         pdf.set_font('Helvetica', 'B', 16)
         pdf.cell(0,10, 'Automated Trading Analysis Report', ln=1, align='C')
         pdf.set_font('Helvetica', '', 10)
         pdf.cell(0,10, f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}', ln=1, align='C')
-        # Core Metrics
         pdf.add_page()
         pdf.set_font('Helvetica', 'B', 14)
         pdf.cell(0,10, 'Core Metrics', ln=1)
         pdf.set_font('Helvetica', '', 12)
-        english_labels = ['Total Trades', 'Total P/L', 'Sharpe Ratio', 'Win Rate', 'Profit Factor', 'Max Drawdown', 'Calmar Ratio', 'Recent Drawdown']
+        labels = ['Total Trades','Total P/L','Sharpe Ratio','Win Rate','Profit Factor','Max Drawdown','Calmar Ratio','Recent Drawdown']
         values = [len(df), df['盈亏'].sum()] + list(compute_metrics(lookback_days))
-        for label, val in zip(english_labels, values):
+        for label, val in zip(labels, values):
             pdf.cell(60,8, label)
             pdf.cell(0,8, f"{val:.2f}" if isinstance(val, float) else str(val), ln=1)
-        # Monte Carlo Distribution
         pdf.add_page()
         pdf.set_font('Helvetica', 'B', 14)
         pdf.cell(0,10, 'Monte Carlo Distribution', ln=1)
         pdf.set_font('Helvetica', '', 12)
         mc_img = px.histogram(sims_pdf, nbins=40).to_image(format='png', width=600, height=300)
         pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
-        # 写入临时文件并读取字节
         tmp_path = 'temp_report.pdf'
         pdf.output(tmp_path)
         with open(tmp_path, 'rb') as f:
             pdf_bytes = f.read()
-        col_pdf.download_button('Download PDF Report', pdf_bytes, file_name='report.pdf', mime='application/pdf')
+        st.download_button(
+            label='下载 PDF 报告',
+            data=pdf_bytes,
+            file_name='report.pdf',
+            mime='application/pdf'
+        )
+
+# 3. 设置
+with tabs[2]:
+    st.subheader('⚙️ 设置')
+    st.write('通过侧边栏直接调整以下参数：')
+    st.write('- **缓存天数（天）**: 左侧滑块或输入框
+    - **保留快照份数**: 左侧滑块或输入框
+    - **回撤回溯期 (天)**: 左侧滑块
+    
+    保存后请刷新页面生效。")]}
