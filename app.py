@@ -138,17 +138,17 @@ with tabs[1]:
         }).to_excel(writer, sheet_name='Metrics', index=False)
     col_excel.download_button('下载 Excel (.xlsx)', excel_buf.getvalue(), file_name='report.xlsx')
 
-    # 下载 PDF 报告
+        # 下载 PDF 报告
     with col_pdf:
         sims_pdf = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
         pdf = FPDF('P','mm','A4')
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.alias_nb_pages()
-        # 使用系统自带编码兼容的字体，并全英文内容避免编码异常
+        # 使用系统自带编码兼容字体，全部英文
         pdf.set_font('Helvetica', '', 12)
         # 封面
         pdf.add_page()
-        pdf.cell(0,60,'', ln=1)
+        pdf.cell(0,60, '', ln=1)
         pdf.set_font('Helvetica', 'B', 16)
         pdf.cell(0,10, 'Automated Trading Analysis Report', ln=1, align='C')
         pdf.set_font('Helvetica', '', 10)
@@ -170,5 +170,9 @@ with tabs[1]:
         pdf.set_font('Helvetica', '', 12)
         mc_img = px.histogram(sims_pdf, nbins=40).to_image(format='png', width=600, height=300)
         pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
-        pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+        # 写入临时文件并读取字节
+        tmp_path = 'temp_report.pdf'
+        pdf.output(tmp_path)
+        with open(tmp_path, 'rb') as f:
+            pdf_bytes = f.read()
         col_pdf.download_button('Download PDF Report', pdf_bytes, file_name='report.pdf', mime='application/pdf')
