@@ -185,11 +185,6 @@ with tabs[1]:
     st.download_button('下载 PDF 报告', pdf_bytes, 'detailed_report.pdf')
 
 # 3. 设置
-with tabs[1]:
-    # ... (data export code unchanged)
-    pass
-
-# 3. 设置
 with tabs[2]:
     st.subheader('⚙️ 设置')
     # 二级菜单控件
@@ -200,4 +195,4 @@ with tabs[2]:
     st.session_state['cache_days'] = cache_days
     st.session_state['max_snapshots'] = max_snapshots
     st.session_state['lookback_days'] = lookback_days
-    st.write('👍 参数已更新，将在下一次运行时生效。')
+    st.write('👍 参数已更新，将在下一次刷新或运行时生效。')
