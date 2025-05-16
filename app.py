@@ -50,7 +50,7 @@ def load_data(files):
         return pd.DataFrame()
     df = pd.concat(rec, ignore_index=True)
     if 'Status' in df.columns:
-        df = df[df['Status']=='Filled']
+        df = df[df['Status'] == 'Filled']
     # 动态映射列名称
     rename_map = {}
     for col in df.columns:
@@ -67,13 +67,13 @@ def load_data(files):
             rename_map[col] = 'Price'
         elif 'qty' in lc:
             rename_map[col] = 'Qty'
-        elif 'update time' in lc or lc=='time':
+        elif 'update time' in lc or lc == 'time':
             rename_map[col] = 'Time'
         elif 'commission' in lc:
             rename_map[col] = 'Fee'
         elif 'profit' in lc:
             rename_map[col] = 'PnL'
-        elif col=='Source':
+        elif col == 'Source':
             rename_map[col] = 'Source'
     df = df.rename(columns=rename_map)
     # 只保留必要列
@@ -82,10 +82,13 @@ def load_data(files):
     # 时间列转换
     if 'Time' in df.columns:
         df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-    # 数值列转换
+    # 数值列转换（忽略TypeError）
     for c in ['Price','Qty','Fee','PnL']:
         if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce')
+            try:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
+            except TypeError:
+                pass
     df = df.dropna(subset=['Time']).sort_values('Time').reset_index(drop=True)
     return df
 
@@ -110,13 +113,13 @@ if uploaded:
         days = max((df['Time'].max() - df['Time'].min()).days, 1)
         total_pnl = df['PnL'].sum()
         ann_return = total_pnl / days * 252
-        downside_dev = df[df['PnL']<0]['PnL'].std()
+        downside_dev = df[df['PnL'] < 0]['PnL'].std()
         var95 = -df['PnL'].quantile(0.05)
-        cvar95 = -df[df['PnL']<=df['PnL'].quantile(0.05)]['PnL'].mean()
-        sharpe = df['PnL'].mean()/df['PnL'].std()*np.sqrt(252) if df['PnL'].std() else 0
-        win_rate = (df['PnL']>0).mean()
-        profit_factor = df[df['PnL']>0]['PnL'].mean()/(-df[df['PnL']<0]['PnL'].mean())
-        max_dd = (df['Cumulative']-df['Cumulative'].cummax()).min()
+        cvar95 = -df[df['PnL'] <= df['PnL'].quantile(0.05)]['PnL'].mean()
+        sharpe = df['PnL'].mean() / df['PnL'].std() * np.sqrt(252) if df['PnL'].std() else 0
+        win_rate = (df['PnL'] > 0).mean()
+        profit_factor = df[df['PnL'] > 0]['PnL'].mean() / (-df[df['PnL'] < 0]['PnL'].mean())
+        max_dd = (df['Cumulative'] - df['Cumulative'].cummax()).min()
 
         # 滑点分析
         if market_file:
@@ -132,7 +135,7 @@ if uploaded:
 
         # 持仓时长分布分析
         df_sorted = df.copy()
-        df_sorted['HoldTime'] = df_sorted.groupby(['Account','Symbol'])['Time'].diff().dt.total_seconds()/60
+        df_sorted['HoldTime'] = df_sorted.groupby(['Account','Symbol'])['Time'].diff().dt.total_seconds() / 60
 
         # Monte Carlo 模拟
         sims, n = 500, len(df)
@@ -155,17 +158,17 @@ if uploaded:
             for k,v in metrics.items(): st.metric(k, f'{v:.2f}')
         with tabs[1]:
             st.subheader('📈 累计盈亏趋势')
-            st.plotly_chart(px.line(df, x='Time', y='Cumulative'), use_container_width=True)
+            st.plotly_chart(px.line(df, x='Time', y='Cumulative', title='Cumulative PnL'), use_container_width=True)
             st.subheader('📊 日/小时盈亏')
-            st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL'), use_container_width=True)
-            st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL'), use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL', title='Daily PnL'), use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL', title='Hourly PnL'), use_container_width=True)
             st.subheader('⏳ 持仓时长分布')
-            st.plotly_chart(px.box(df_sorted.dropna(subset=['HoldTime']), x='Account', y='HoldTime'), use_container_width=True)
+            st.plotly_chart(px.box(df_sorted.dropna(subset=['HoldTime']), x='Account', y='HoldTime', title='Hold Time Distribution'), use_container_width=True)
             st.subheader('🎲 Monte Carlo 模拟')
-            st.plotly_chart(px.histogram(mc_vals, nbins=40), use_container_width=True)
+            st.plotly_chart(px.histogram(mc_vals, nbins=40, title='Monte Carlo Distribution'), use_container_width=True)
             if df['Slippage'].notna().any():
                 st.subheader('🕳️ 滑点分析')
-                st.plotly_chart(px.histogram(df, x='Slippage'), use_container_width=True)
+                st.plotly_chart(px.histogram(df, x='Slippage', title='Slippage Distribution'), use_container_width=True)
             if os.path.exists(heat_png):
                 st.subheader('📣 舆情热力图')
                 st.image(heat_png, use_column_width=True)
@@ -191,11 +194,11 @@ if uploaded:
                 pdf.cell(0,10,'交易分析报告', ln=True, align='C')
                 pdf.ln(5)
                 pdf.set_font('Arial','',12)
-                pdf.cell(0,8, f'生成时间: {now}', ln=True)
-                pdf.cell(0,8, f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
+                pdf.cell(0,8,f'生成时间: {now}', ln=True)
+                pdf.cell(0,8,f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
                 pdf.ln(5)
-                buf = io.BytesIO()
-                pdf.output(buf)
-                st.download_button('Download PDF Report', buf.getvalue(), file_name=f'Report_{now}.pdf', mime='application/pdf')
+                buf_pdf = io.BytesIO()
+                pdf.output(buf_pdf)
+                st.download_button('Download PDF Report', buf_pdf.getvalue(), file_name=f'Report_{now}.pdf', mime='application/pdf')
 else:
     st.info('👆 上传 CSV 文件以开始分析')
