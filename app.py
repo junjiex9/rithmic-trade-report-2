@@ -4,7 +4,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io, os
+import io
+import os
 import plotly.express as px
 from datetime import datetime
 
@@ -51,7 +52,6 @@ def load_data(files):
     df = pd.concat(rec, ignore_index=True)
     if 'Status' in df.columns:
         df = df[df['Status'] == 'Filled']
-    # 动态映射列名称
     rename_map = {}
     for col in df.columns:
         lc = col.lower()
@@ -76,19 +76,13 @@ def load_data(files):
         elif col == 'Source':
             rename_map[col] = 'Source'
     df = df.rename(columns=rename_map)
-    # 只保留必要列
     need = ['Account','Direction','Symbol','Price','Qty','Time','Fee','PnL','Source']
     df = df[[c for c in need if c in df.columns]]
-    # 时间列转换
     if 'Time' in df.columns:
         df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-    # 数值列转换（忽略TypeError）
     for c in ['Price','Qty','Fee','PnL']:
         if c in df.columns:
-            try:
-                df[c] = pd.to_numeric(df[c], errors='coerce')
-            except TypeError:
-                pass
+            df[c] = pd.to_numeric(df[c], errors='coerce')
     df = df.dropna(subset=['Time']).sort_values('Time').reset_index(drop=True)
     return df
 
@@ -133,7 +127,7 @@ if uploaded:
         else:
             df['Slippage'] = np.nan
 
-        # 持仓时长分布分析
+        # 持仓时长分析
         df_sorted = df.copy()
         df_sorted['HoldTime'] = df_sorted.groupby(['Account','Symbol'])['Time'].diff().dt.total_seconds() / 60
 
@@ -154,8 +148,13 @@ if uploaded:
         tabs = st.tabs(['Overview','Charts','Export'])
         with tabs[0]:
             st.subheader('📌 核心统计指标')
-            metrics = dict(TotalPnL=total_pnl, Sharpe=sharpe, WinRate=win_rate, ProfitFactor=profit_factor, AnnualReturn=ann_return, DownsideDev=downside_dev, VaR95=var95, CVaR95=cvar95, MaxDD=max_dd)
-            for k,v in metrics.items(): st.metric(k, f'{v:.2f}')
+            metrics = dict(
+                TotalPnL=total_pnl, Sharpe=sharpe, WinRate=win_rate,
+                ProfitFactor=profit_factor, AnnualReturn=ann_return,
+                DownsideDev=downside_dev, VaR95=var95, CVaR95=cvar95, MaxDD=max_dd
+            )
+            for k, v in metrics.items():
+                st.metric(k, f'{v:.2f}')
         with tabs[1]:
             st.subheader('📈 累计盈亏趋势')
             st.plotly_chart(px.line(df, x='Time', y='Cumulative', title='Cumulative PnL'), use_container_width=True)
@@ -174,17 +173,20 @@ if uploaded:
                 st.image(heat_png, use_column_width=True)
         with tabs[2]:
             st.subheader('📥 导出Excel报告')
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as ew:
+            buf_xlsx = io.BytesIO()
+            with pd.ExcelWriter(buf_xlsx, engine='xlsxwriter') as ew:
                 df.to_excel(ew, sheet_name='Trades', index=False)
                 df.groupby('Date')['PnL'].sum().to_excel(ew, sheet_name='DailyPL')
                 df.groupby('Hour')['PnL'].mean().to_excel(ew, sheet_name='HourlyPL')
                 df.groupby('Account')['PnL'].agg(['sum','count','mean','std']).to_excel(ew, sheet_name='AccountStats')
                 df.groupby('Symbol')['PnL'].agg(['sum','count','mean','std']).to_excel(ew, sheet_name='SymbolStats')
-                df.assign(Month=df['Time'].dt.to_period('M')).groupby('Month')['PnL'].sum().to_frame().to_excel(ew, sheet_name='MonthlyPL')
+                df.assign(Month=df['Time'].dt.to_period('M')).groupby('Month')['PnL']
+                    .sum()
+                    .to_frame()
+                    .to_excel(ew, sheet_name='MonthlyPL')
                 df_sorted[['Account','Symbol','HoldTime']].dropna().to_excel(ew, sheet_name='Durations', index=False)
                 pd.DataFrame(metrics, index=[0]).T.reset_index(names=['Metric','Value']).to_excel(ew, sheet_name='Summary', index=False)
-            st.download_button('Download Excel Report', buf.getvalue(), file_name=f'Report_{now}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            st.download_button('Download Excel Report', buf_xlsx.getvalue(), file_name=f'Report_{now}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             st.subheader('📄 导出PDF报告（详细表格与图像）')
             if pdf_available and st.button('Download PDF Report'):
                 pdf = FPDF()
