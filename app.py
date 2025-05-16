@@ -17,7 +17,7 @@ except ModuleNotFoundError:
     pdf_available = False
 
 # ============ 页面配置 ============
-st.set_page_config(page_title="📈 交易分析报告生成器", layout="wide")
+st.set_page_config(page_title="📈 Rithmic 交易分析报告生成器", layout="wide")
 
 # ============ 多语言支持 ============
 LANG = {'中文':'📈 交易分析报告生成器','English':'📈 Trading Report Generator'}
@@ -69,7 +69,7 @@ if uploaded:
         os.remove(os.path.join(SNAP_DIR, old))
     st.sidebar.success(f'Loaded {len(df)} trades. Snapshot: {snap}')
 
-    # 计算指标
+    # 核心指标计算
     df['Cumulative'] = df['PnL'].cumsum()
     df['Date'], df['Hour'] = df['Time'].dt.date, df['Time'].dt.hour
     days = max((df['Time'].max() - df['Time'].min()).days, 1)
@@ -125,29 +125,29 @@ if uploaded:
             'CVaR95': cvar95,
             'Max Drawdown': max_dd
         }
-        for k,v in metrics.items(): st.metric(k, f'{v:.2f}' if isinstance(v,(int,float)) else v)
+        for k,v in metrics.items(): st.metric(k, f'{v:.2f}')
 
     # Charts
     with tabs[1]:
         st.subheader('📈 累计盈亏趋势')
-        st.plotly_chart(px.line(df, x='Time', y='Cumulative'), use_container_width=True)
+        st.plotly_chart(px.line(df, x='Time', y='Cumulative', title='Cumulative PnL'), use_container_width=True)
         st.subheader('📊 日/小时盈亏')
-        st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL'), use_container_width=True)
-        st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL'), use_container_width=True)
+        st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL', title='Daily PnL'), use_container_width=True)
+        st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL', title='Hourly PnL'), use_container_width=True)
         st.subheader('⏳ 持仓时长分布（分钟）')
-        st.plotly_chart(px.box(df_sorted, x='Account', y='HoldTime'), use_container_width=True)
+        st.plotly_chart(px.box(df_sorted, x='Account', y='HoldTime', title='Hold Time Distribution'), use_container_width=True)
         st.subheader('🎲 Monte Carlo 模拟')
-        st.plotly_chart(px.histogram(mc_vals, nbins=40), use_container_width=True)
+        st.plotly_chart(px.histogram(mc_vals, nbins=40, title='Monte Carlo Distribution'), use_container_width=True)
         if not df['Slippage'].isna().all():
             st.subheader('🕳️ 滑点分析')
-            st.plotly_chart(px.histogram(df, x='Slippage'), use_container_width=True)
+            st.plotly_chart(px.histogram(df, x='Slippage', title='Slippage Distribution'), use_container_width=True)
         if os.path.exists('sent_heat.png'):
             st.subheader('📣 社交舆情热力图')
             st.image('sent_heat.png', use_column_width=True)
 
     # Export
     with tabs[2]:
-        # Excel 导出
+        # 📥 导出Excel报告（详细工作表）
         st.subheader('📥 导出Excel报告')
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as ew:
@@ -161,14 +161,125 @@ if uploaded:
             pd.DataFrame(metrics, index=[0]).T.reset_index(names=['Metric','Value']).to_excel(ew, sheet_name='Summary', index=False)
         st.download_button('Download Excel Report', data=excel_buffer.getvalue(), file_name=f'Report_{now}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-        # PDF 导出
+        # 📄 导出PDF报告（详细表格与图像）
         st.subheader('📄 导出PDF报告')
         if pdf_available and st.button('Download PDF Report'):
             pdf = FPDF()
             pdf.set_auto_page_break(True, margin=15)
-            # 使用之前示例的详细 PDF 写入逻辑
-            from app_pdf import write_full_pdf  # 假设提取为模块
-            write_full_pdf(pdf, df, df_sorted, mc_vals, metrics, now)
+
+            # 封面
+            pdf.add_page()
+            pdf.set_font('Arial','B',16)
+            pdf.cell(0,10,'交易分析报告',ln=True,align='C')
+            pdf.ln(5)
+            pdf.set_font('Arial','',12)
+            pdf.cell(0,8,f'生成时间: {now}',ln=True)
+            pdf.cell(0,8,f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}',ln=True)
+            pdf.ln(5)
+
+            # 核心统计指标表
+            summary_tbl = pd.DataFrame({
+                'Metric':['Sharpe','WinRate','ProfitFactor','AnnualReturn','DownsideDev','VaR95','CVaR95','MaxDD'],
+                'Value':[sharpe,win_rate,profit_factor,ann_return,downside_dev,var95,cvar95,max_dd]
+            })
+            col_w = pdf.epw/2
+            pdf.set_font('Arial','B',12)
+            for col in summary_tbl.columns:
+                pdf.cell(col_w,8,col,border=1)
+            pdf.ln()
+            pdf.set_font('Arial','',10)
+            for _,row in summary_tbl.iterrows():
+                pdf.cell(col_w,8,row['Metric'],border=1)
+                pdf.cell(col_w,8,f"{row['Value']:.2f}",border=1)
+                pdf.ln()
+
+            # 账户统计
+            pdf.add_page()
+            pdf.set_font('Arial','B',14)
+            pdf.cell(0,8,'账户统计',ln=True)
+            acct_df = df.groupby('Account')['PnL'].agg(['sum','count','mean','std']).reset_index()
+            cols_ac=['Account','sum','count','mean','std']
+            w_ac=pdf.epw/len(cols_ac)
+            pdf.set_font('Arial','B',10)
+            for c in cols_ac:
+                pdf.cell(w_ac,6,c,border=1)
+            pdf.ln()
+            pdf.set_font('Arial','',9)
+            for _,r in acct_df.iterrows():
+                for c in cols_ac:
+                    pdf.cell(w_ac,6,f"{r[c]:.2f}",border=1)
+                pdf.ln()
+
+            # 品种统计
+            pdf.add_page()
+            pdf.set_font('Arial','B',14)
+            pdf.cell(0,8,'品种统计',ln=True)
+            sym_df=df.groupby('Symbol')['PnL'].agg(['sum','count','mean','std']).reset_index()
+            cols_sy=['Symbol','sum','count','mean','std']
+            w_sy=pdf.epw/len(cols_sy)
+            pdf.set_font('Arial','B',10)
+            for c in cols_sy:
+                pdf.cell(w_sy,6,c,border=1)
+            pdf.ln()
+            pdf.set_font('Arial','',9)
+            for _,r in sym_df.iterrows():
+                for c in cols_sy:
+                    pdf.cell(w_sy,6,f"{r[c]:.2f}",border=1)
+                pdf.ln()
+
+            # 月度盈亏
+            pdf.add_page()
+            pdf.set_font('Arial','B',14)
+            pdf.cell(0,8,'月度盈亏',ln=True)
+            mon_df=df.assign(Month=df['Time'].dt.to_period('M')).groupby('Month')['PnL'].sum().reset_index()
+            pdf.set_font('Arial','B',10)
+            pdf.cell(pdf.epw/2,6,'Month',border=1)
+            pdf.cell(pdf.epw/2,6,'PnL',border=1)
+            pdf.ln()
+            pdf.set_font('Arial','',9)
+            for _,r in mon_df.iterrows():
+                pdf.cell(pdf.epw/2,6,str(r['Month']),border=1)
+                pdf.cell(pdf.epw/2,6,f"{r['PnL']:.2f}",border=1)
+                pdf.ln()
+
+            # 持仓时长分布
+            pdf.add_page()
+            pdf.set_font('Arial','B',14)
+            pdf.cell(0,8,'持仓时长分布（分钟）',ln=True)
+            dur_df=df_sorted[['Account','Symbol','HoldTime']].dropna().reset_index(drop=True)
+            pdf.set_font('Arial','B',10)
+            pdf.cell(pdf.epw/3,6,'Account',border=1)
+            pdf.cell(pdf.epw/3,6,'Symbol',border=1)
+            pdf.cell(pdf.epw/3,6,'HoldTime',border=1)
+            pdf.ln()
+            pdf.set_font('Arial','',9)
+            for _,r in dur_df.iterrows():
+                pdf.cell(pdf.epw/3,6,r['Account'],border=1)
+                pdf.cell(pdf.epw/3,6,r['Symbol'],border=1)
+                pdf.cell(pdf.epw/3,6,f"{r['HoldTime']:.2f}",border=1)
+                pdf.ln()
+
+            # Monte Carlo 模拟
+            pdf.add_page()
+            pdf.set_font('Arial','B',14)
+            pdf.cell(0,8,'Monte Carlo 模拟结果（前20条）',ln=True)
+            pdf.set_font('Arial','B',10)
+            pdf.cell(pdf.epw/4,6,'#',border=1)
+            pdf.cell(3*pdf.epw/4,6,'Final PnL',border=1)
+            pdf.ln()
+            pdf.set_font('Arial','',9)
+            for i,val in enumerate(mc_vals[:20]):
+                pdf.cell(pdf.epw/4,6,str(i+1),border=1)
+                pdf.cell(3*pdf.epw/4,6,f"{val:.2f}",border=1)
+                pdf.ln()
+
+            # 舆情热力图
+            if os.path.exists('sent_heat.png'):
+                pdf.add_page()
+                pdf.set_font('Arial','B',14)
+                pdf.cell(0,8,'社交舆情热力图',ln=True)
+                pdf.image('sent_heat.png', x=10, w=pdf.epw-20)
+
             buf = io.BytesIO()
             pdf.output(buf)
             st.download_button('Download PDF Report', buf.getvalue(), file_name=f'Report_{now}.pdf', mime='application/pdf')
