@@ -85,10 +85,7 @@ def load_data(files):
     # 数值列转换
     for c in ['Price','Qty','Fee','PnL']:
         if c in df.columns:
-            col_data = df[c]
-            if not isinstance(col_data, pd.Series):
-                col_data = pd.Series(col_data)
-            df[c] = pd.to_numeric(col_data, errors='coerce')
+            df[c] = pd.to_numeric(df[c], errors='coerce')
     df = df.dropna(subset=['Time']).sort_values('Time').reset_index(drop=True)
     return df
 
@@ -133,7 +130,7 @@ if uploaded:
         else:
             df['Slippage'] = np.nan
 
-        # 持仓时长分布
+        # 持仓时长分布分析
         df_sorted = df.copy()
         df_sorted['HoldTime'] = df_sorted.groupby(['Account','Symbol'])['Time'].diff().dt.total_seconds()/60
 
@@ -145,7 +142,7 @@ if uploaded:
         heat_png = 'sent_heat.png'
         if sent_file:
             sent = pd.read_csv(sent_file)
-            if set(['SentimentScore','Symbol','Date']).issubset(sent.columns):
+            if {'SentimentScore','Symbol','Date'}.issubset(sent.columns):
                 sent['Date'] = pd.to_datetime(sent['Date'], errors='coerce').dt.date
                 heat = sent.pivot_table(index='Symbol', columns='Date', values='SentimentScore', aggfunc='mean')
                 fig_heat = px.imshow(heat, aspect='auto', title='Sentiment Heatmap')
@@ -158,17 +155,17 @@ if uploaded:
             for k,v in metrics.items(): st.metric(k, f'{v:.2f}')
         with tabs[1]:
             st.subheader('📈 累计盈亏趋势')
-            st.plotly_chart(px.line(df, x='Time', y='Cumulative', title='Cumulative PnL'), use_container_width=True)
+            st.plotly_chart(px.line(df, x='Time', y='Cumulative'), use_container_width=True)
             st.subheader('📊 日/小时盈亏')
-            st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL', title='Daily PnL'), use_container_width=True)
-            st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL', title='Hourly PnL'), use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL'), use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL'), use_container_width=True)
             st.subheader('⏳ 持仓时长分布')
-            st.plotly_chart(px.box(df_sorted.dropna(subset=['HoldTime']), x='Account', y='HoldTime', title='Hold Time Distribution'), use_container_width=True)
+            st.plotly_chart(px.box(df_sorted.dropna(subset=['HoldTime']), x='Account', y='HoldTime'), use_container_width=True)
             st.subheader('🎲 Monte Carlo 模拟')
-            st.plotly_chart(px.histogram(mc_vals, nbins=40, title='Monte Carlo Distribution'), use_container_width=True)
+            st.plotly_chart(px.histogram(mc_vals, nbins=40), use_container_width=True)
             if df['Slippage'].notna().any():
                 st.subheader('🕳️ 滑点分析')
-                st.plotly_chart(px.histogram(df, x='Slippage', title='Slippage Distribution'), use_container_width=True)
+                st.plotly_chart(px.histogram(df, x='Slippage'), use_container_width=True)
             if os.path.exists(heat_png):
                 st.subheader('📣 舆情热力图')
                 st.image(heat_png, use_column_width=True)
@@ -185,17 +182,20 @@ if uploaded:
                 df_sorted[['Account','Symbol','HoldTime']].dropna().to_excel(ew, sheet_name='Durations', index=False)
                 pd.DataFrame(metrics, index=[0]).T.reset_index(names=['Metric','Value']).to_excel(ew, sheet_name='Summary', index=False)
             st.download_button('Download Excel Report', buf.getvalue(), file_name=f'Report_{now}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            
             st.subheader('📄 导出PDF报告（详细表格与图像）')
             if pdf_available and st.button('Download PDF Report'):
                 pdf = FPDF()
                 pdf.set_auto_page_break(True, margin=15)
                 pdf.add_page()
                 pdf.set_font('Arial','B',16)
-                pdf.cell(0,10,'交易分析报告',ln=True,align='C')
+                pdf.cell(0,10,'交易分析报告', ln=True, align='C')
                 pdf.ln(5)
                 pdf.set_font('Arial','',12)
-                pdf.cell(0,8,f'生成时间: {now}', ln=True)
-                pdf.cell(0,8,f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
-                pdf.cell(0,8,f'Total PnL: {total`
-}]}
+                pdf.cell(0,8, f'生成时间: {now}', ln=True)
+                pdf.cell(0,8, f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}', ln=True)
+                pdf.ln(5)
+                buf = io.BytesIO()
+                pdf.output(buf)
+                st.download_button('Download PDF Report', buf.getvalue(), file_name=f'Report_{now}.pdf', mime='application/pdf')
+else:
+    st.info('👆 上传 CSV 文件以开始分析')
