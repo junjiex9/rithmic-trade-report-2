@@ -77,11 +77,16 @@ def load_data(files):
     df = df.rename(columns=rename_map)
     need = ['Account','Direction','Symbol','Price','Qty','Time','Fee','PnL','Source']
     df = df[[c for c in need if c in df.columns]]
-    if 'Time' in df.columns:
+        if 'Time' in df.columns:
         df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
+    # 转换数值列，确保为Series
     for c in ['Price','Qty','Fee','PnL']:
         if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce')
+            col_data = df[c]
+            if not isinstance(col_data, pd.Series):
+                # 有时列可能为列表或其他类型，先转换为Series
+                col_data = pd.Series(col_data)
+            df[c] = pd.to_numeric(col_data, errors='coerce')
     df = df.dropna(subset=['Time']).sort_values('Time').reset_index(drop=True)
     return df
 
