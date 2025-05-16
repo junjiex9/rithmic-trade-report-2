@@ -1,5 +1,5 @@
 # app.py
-# Streamlit 交易分析报告生成器（完整版，动态图表与导出功能）
+# Streamlit 交易分析报告生成器（修正版，动态图表与导出功能）
 
 import streamlit as st
 import pandas as pd
@@ -51,6 +51,7 @@ def load_data(files):
     df = pd.concat(rec, ignore_index=True)
     if 'Status' in df.columns:
         df = df[df['Status']=='Filled']
+    # 动态映射列名称
     rename_map = {}
     for col in df.columns:
         lc = col.lower()
@@ -75,16 +76,17 @@ def load_data(files):
         elif col=='Source':
             rename_map[col] = 'Source'
     df = df.rename(columns=rename_map)
+    # 只保留必要列
     need = ['Account','Direction','Symbol','Price','Qty','Time','Fee','PnL','Source']
     df = df[[c for c in need if c in df.columns]]
-        if 'Time' in df.columns:
+    # 时间列转换
+    if 'Time' in df.columns:
         df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-    # 转换数值列，确保为Series
+    # 数值列转换
     for c in ['Price','Qty','Fee','PnL']:
         if c in df.columns:
             col_data = df[c]
             if not isinstance(col_data, pd.Series):
-                # 有时列可能为列表或其他类型，先转换为Series
                 col_data = pd.Series(col_data)
             df[c] = pd.to_numeric(col_data, errors='coerce')
     df = df.dropna(subset=['Time']).sort_values('Time').reset_index(drop=True)
@@ -104,13 +106,13 @@ if uploaded:
             os.remove(os.path.join(SNAP_DIR, old))
         st.sidebar.success(f'Loaded {len(df)} trades. Snapshot: {snap}')
 
-        # 核心指标
+        # 核心指标计算
         df['Cumulative'] = df['PnL'].cumsum()
         df['Date'] = df['Time'].dt.date
         df['Hour'] = df['Time'].dt.hour
-        days = max((df['Time'].max()-df['Time'].min()).days,1)
+        days = max((df['Time'].max() - df['Time'].min()).days, 1)
         total_pnl = df['PnL'].sum()
-        ann_return = total_pnl/days*252
+        ann_return = total_pnl / days * 252
         downside_dev = df[df['PnL']<0]['PnL'].std()
         var95 = -df['PnL'].quantile(0.05)
         cvar95 = -df[df['PnL']<=df['PnL'].quantile(0.05)]['PnL'].mean()
@@ -119,107 +121,80 @@ if uploaded:
         profit_factor = df[df['PnL']>0]['PnL'].mean()/(-df[df['PnL']<0]['PnL'].mean())
         max_dd = (df['Cumulative']-df['Cumulative'].cummax()).min()
 
-        # 滑点
+        # 滑点分析
         if market_file:
             mp = pd.read_csv(market_file)
             if 'MarketPrice' in mp.columns:
-                mp['Time']=pd.to_datetime(mp['Time'],errors='coerce')
+                mp['Time'] = pd.to_datetime(mp['Time'], errors='coerce')
                 df = df.merge(mp[['Symbol','Time','MarketPrice']], on=['Symbol','Time'], how='left')
-                df['Slippage']=df['Price']-df['MarketPrice']
+                df['Slippage'] = df['Price'] - df['MarketPrice']
             else:
-                df['Slippage']=np.nan
+                df['Slippage'] = np.nan
         else:
-            df['Slippage']=np.nan
+            df['Slippage'] = np.nan
 
-        # 持仓时长
+        # 持仓时长分布
         df_sorted = df.copy()
         df_sorted['HoldTime'] = df_sorted.groupby(['Account','Symbol'])['Time'].diff().dt.total_seconds()/60
 
-        # Monte Carlo
+        # Monte Carlo 模拟
         sims, n = 500, len(df)
-        mc_vals = [np.random.choice(df['PnL'],n,replace=True).cumsum()[-1] for _ in range(sims)]
+        mc_vals = [np.random.choice(df['PnL'], n, replace=True).cumsum()[-1] for _ in range(sims)]
 
         # 舆情热力图
-        heat_png='sent_heat.png'
+        heat_png = 'sent_heat.png'
         if sent_file:
-            sent=pd.read_csv(sent_file)
-            if all(x in sent.columns for x in ['SentimentScore','Symbol','Date']):
-                sent['Date']=pd.to_datetime(sent['Date'],errors='coerce').dt.date
-                heat=sent.pivot_table(index='Symbol',columns='Date',values='SentimentScore',aggfunc='mean')
-                fig_heat=px.imshow(heat,aspect='auto',title='Sentiment Heatmap')
+            sent = pd.read_csv(sent_file)
+            if set(['SentimentScore','Symbol','Date']).issubset(sent.columns):
+                sent['Date'] = pd.to_datetime(sent['Date'], errors='coerce').dt.date
+                heat = sent.pivot_table(index='Symbol', columns='Date', values='SentimentScore', aggfunc='mean')
+                fig_heat = px.imshow(heat, aspect='auto', title='Sentiment Heatmap')
                 fig_heat.write_image(heat_png)
 
-        tabs=st.tabs(['Overview','Charts','Export'])
+        tabs = st.tabs(['Overview','Charts','Export'])
         with tabs[0]:
             st.subheader('📌 核心统计指标')
-            metrics=dict(TotalPnL=total_pnl,Sharpe=sharpe,WinRate=win_rate,
-                         ProfitFactor=profit_factor,AnnualReturn=ann_return,
-                         DownsideDev=downside_dev,VaR95=var95,CVaR95=cvar95,MaxDD=max_dd)
-            for k,v in metrics.items(): st.metric(k,f'{v:.2f}')
+            metrics = dict(TotalPnL=total_pnl, Sharpe=sharpe, WinRate=win_rate, ProfitFactor=profit_factor, AnnualReturn=ann_return, DownsideDev=downside_dev, VaR95=var95, CVaR95=cvar95, MaxDD=max_dd)
+            for k,v in metrics.items(): st.metric(k, f'{v:.2f}')
         with tabs[1]:
             st.subheader('📈 累计盈亏趋势')
-            st.plotly_chart(px.line(df,x='Time',y='Cumulative',title='Cumulative PnL'),use_container_width=True)
+            st.plotly_chart(px.line(df, x='Time', y='Cumulative', title='Cumulative PnL'), use_container_width=True)
             st.subheader('📊 日/小时盈亏')
-            st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(),x='Date',y='PnL',title='Daily PnL'),use_container_width=True)
-            st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(),x='Hour',y='PnL',title='Hourly PnL'),use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby('Date')['PnL'].sum().reset_index(), x='Date', y='PnL', title='Daily PnL'), use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby('Hour')['PnL'].mean().reset_index(), x='Hour', y='PnL', title='Hourly PnL'), use_container_width=True)
             st.subheader('⏳ 持仓时长分布')
-            st.plotly_chart(px.box(df_sorted.dropna(subset=['HoldTime']),x='Account',y='HoldTime',title='Hold Time Distribution'),use_container_width=True)
+            st.plotly_chart(px.box(df_sorted.dropna(subset=['HoldTime']), x='Account', y='HoldTime', title='Hold Time Distribution'), use_container_width=True)
             st.subheader('🎲 Monte Carlo 模拟')
-            st.plotly_chart(px.histogram(mc_vals,nbins=40,title='Monte Carlo Distribution'),use_container_width=True)
+            st.plotly_chart(px.histogram(mc_vals, nbins=40, title='Monte Carlo Distribution'), use_container_width=True)
             if df['Slippage'].notna().any():
                 st.subheader('🕳️ 滑点分析')
-                st.plotly_chart(px.histogram(df,x='Slippage',title='Slippage Distribution'),use_container_width=True)
+                st.plotly_chart(px.histogram(df, x='Slippage', title='Slippage Distribution'), use_container_width=True)
             if os.path.exists(heat_png):
                 st.subheader('📣 舆情热力图')
-                st.image(heat_png,use_column_width=True)
+                st.image(heat_png, use_column_width=True)
         with tabs[2]:
             st.subheader('📥 导出Excel报告')
-            buf=io.BytesIO()
-            with pd.ExcelWriter(buf,engine='xlsxwriter') as ew:
-                df.to_excel(ew,sheet_name='Trades',index=False)
-                df.groupby('Date')['PnL'].sum().to_excel(ew,sheet_name='DailyPL')
-                df.groupby('Hour')['PnL'].mean().to_excel(ew,sheet_name='HourlyPL')
-                df.groupby('Account')['PnL'].agg(['sum','count','mean','std']).to_excel(ew,sheet_name='AccountStats')
-                df.groupby('Symbol')['PnL'].agg(['sum','count','mean','std']).to_excel(ew,sheet_name='SymbolStats')
-                df.assign(Month=df['Time'].dt.to_period('M')).groupby('Month')['PnL'].sum().to_frame().to_excel(ew,sheet_name='MonthlyPL')
-                df_sorted[['Account','Symbol','HoldTime']].dropna().to_excel(ew,sheet_name='Durations',index=False)
-                pd.DataFrame(metrics,index=[0]).T.reset_index(names=['Metric','Value']).to_excel(ew,sheet_name='Summary',index=False)
-            st.download_button('DownloadExcel',data=buf.getvalue(),file_name=f'Report_{now}.xlsx',mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as ew:
+                df.to_excel(ew, sheet_name='Trades', index=False)
+                df.groupby('Date')['PnL'].sum().to_excel(ew, sheet_name='DailyPL')
+                df.groupby('Hour')['PnL'].mean().to_excel(ew, sheet_name='HourlyPL')
+                df.groupby('Account')['PnL'].agg(['sum','count','mean','std']).to_excel(ew, sheet_name='AccountStats')
+                df.groupby('Symbol')['PnL'].agg(['sum','count','mean','std']).to_excel(ew, sheet_name='SymbolStats')
+                df.assign(Month=df['Time'].dt.to_period('M')).groupby('Month')['PnL'].sum().to_frame().to_excel(ew, sheet_name='MonthlyPL')
+                df_sorted[['Account','Symbol','HoldTime']].dropna().to_excel(ew, sheet_name='Durations', index=False)
+                pd.DataFrame(metrics, index=[0]).T.reset_index(names=['Metric','Value']).to_excel(ew, sheet_name='Summary', index=False)
+            st.download_button('Download Excel Report', buf.getvalue(), file_name=f'Report_{now}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            
             st.subheader('📄 导出PDF报告（详细表格与图像）')
             if pdf_available and st.button('Download PDF Report'):
-                pdf=FPDF()
-                pdf.set_auto_page_break(True,margin=15)
-                # 封面
+                pdf = FPDF()
+                pdf.set_auto_page_break(True, margin=15)
                 pdf.add_page()
                 pdf.set_font('Arial','B',16)
                 pdf.cell(0,10,'交易分析报告',ln=True,align='C')
                 pdf.ln(5)
                 pdf.set_font('Arial','',12)
                 pdf.cell(0,8,f'生成时间: {now}',ln=True)
-                pdf.cell(0,8,f'Total PnL: {total_pnl:.2f}   Sharpe: {sharpe:.2f}',ln=True)
-                pdf.ln(5)
-                # 核心指标表
-                summary_tbl=pd.DataFrame({
-                    'Metric':['Sharpe','WinRate','ProfitFactor','AnnualReturn','DownsideDev','VaR95','CVaR95','MaxDD'],
-                    'Value':[sharpe,win_rate,profit_factor,ann_return,downside_dev,var95,cvar95,max_dd]
-                })
-                col_w=pdf.epw/2
-                pdf.set_font('Arial','B',12)
-                for col in summary_tbl.columns: pdf.cell(col_w,8,col,border=1)
-                pdf.ln()
-                pdf.set_font('Arial','',10)
-                for _,row in summary_tbl.iterrows():
-                    pdf.cell(col_w,8,row['Metric'],border=1)
-                    pdf.cell(col_w,8,f"{row['Value']:.2f}",border=1)
-                    pdf.ln()
-                # 完整统计可按需补充至此
-                if os.path.exists(heat_png):
-                    pdf.add_page()
-                    pdf.set_font('Arial','B',14)
-                    pdf.cell(0,8,'舆情热力图',ln=True)
-                    pdf.image(heat_png,x=10,w=pdf.epw-20)
-                buf_pdf=io.BytesIO()
-                pdf.output(buf_pdf)
-                st.download_button('DownloadPDF',data=buf_pdf.getvalue(),file_name=f'Report_{now}.pdf',mime='application/pdf')
-else:
-    st.info('👆 上传 CSV 文件以开始分析')
+                pdf.cell(0,8,f'Total PnL: {total`
+}]}
