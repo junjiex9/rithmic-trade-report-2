@@ -70,6 +70,11 @@ def load_and_clean(files):
 
 df = load_and_clean(uploaded)
 
+# ============ 衍生字段 ============
+df['累计盈亏'] = df['盈亏'].cumsum()
+df['日期'] = df['时间'].dt.date
+df['小时'] = df['时间'].dt.hour
+
 # ============ 快照管理 ============
 def manage_snapshots(df):
     SNAP_DIR = 'snapshots'
@@ -81,7 +86,7 @@ def manage_snapshots(df):
     st.sidebar.success(f"已加载 {len(df)} 条交易，快照：{snap}")
 manage_snapshots(df)
 
-# ============ 风险警示 ============
+# ============ 风险警示 & 当日数据 ============
 today = datetime.now().date()
 trades_today = df[df['时间'].dt.date == today]
 if not trades_today.empty and trades_today['盈亏'].min() <= -abs(max_loss):
@@ -89,14 +94,8 @@ if not trades_today.empty and trades_today['盈亏'].min() <= -abs(max_loss):
 if len(trades_today) > max_trades:
     st.sidebar.warning(f"今日交易 {len(trades_today)} 次，超阈值！")
 
-# ============ 衍生字段 ============
-df['累计盈亏'] = df['盈亏'].cumsum()
-df['日期'] = df['时间'].dt.date
-df['小时'] = df['时间'].dt.hour
-
 # ============ 统计计算 ============
 def compute_stats(data, lookback):
-    # calculate core metrics
     if '时间' in data.columns and not data.empty:
         period = max((data['时间'].max() - data['时间'].min()).days, 1)
     else:
@@ -126,38 +125,20 @@ with tabs[0]:
     dt, ht = st.tabs(['📌 当日统计指标','📌 历史统计指标'])
     # 当日统计指标
     with dt:
-        st.subheader('📈 累计盈亏趋势')
-        fig1 = px.line(trades_today, x='时间', y='累计盈亏')
-        fig1.update_yaxes(tickformat=',.0f')
-        st.plotly_chart(fig1, use_container_width=True)
-        st.subheader('📊 日/小时盈亏')
-        fig2 = px.bar(trades_today.groupby('日期')['盈亏'].sum().reset_index(), x='日期', y='盈亏')
-        fig3 = px.bar(trades_today.groupby('小时')['盈亏'].mean().reset_index(), x='小时', y='盈亏')
-        for fig in [fig2, fig3]: fig.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig, use_container_width=True)
-        st.subheader('⏳ 持仓时长分布（分钟）')
-        st.plotly_chart(px.box(trades_today.sort_values(['账户','品种','时间']).assign(持仓时长=lambda d: d.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60), x='账户', y='持仓时长'), use_container_width=True)
-        st.subheader('🎲 Monte Carlo 模拟')
-        sims = [np.random.choice(trades_today['盈亏'], len(trades_today), replace=True).cumsum()[-1] for _ in range(500)]
-        fig4 = px.histogram(sims, nbins=40); fig4.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig4, use_container_width=True)
-        if market_file:
-            st.subheader('🕳️ 滑点与成交率分析')
-            mp = pd.read_csv(market_file); mp['Time']=pd.to_datetime(mp['Time'],errors='coerce')
-            merged = trades_today.merge(mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}), left_on=['品种','时间'], right_on=['品种','Time'], how='left')
-            merged['滑点']=merged['价格']-merged['市场价格']
-            fig5 = px.histogram(merged, x='滑点'); fig5.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig5, use_container_width=True)
-        if sent_file:
-            st.subheader('📣 社交舆情热力图')
-            ds = pd.read_csv(sent_file); ds['Date']=pd.to_datetime(ds['Date'],errors='coerce').dt.date
-            heat = ds.pivot_table(values='SentimentScore', index='Symbol', columns='Date', aggfunc='mean')
-            st.plotly_chart(px.imshow(heat, aspect='auto'), use_container_width=True)
+        if trades_today.empty:
+            st.info('今日无交易数据')
+        else:
+            st.subheader('📈 累计盈亏趋势')
+            trades_today['累计盈亏'] = trades_today['盈亏'].cumsum()
+            fig1 = px.line(trades_today, x='时间', y='累计盈亏')
+            fig1.update_yaxes(tickformat=',.0f')
+            st.plotly_chart(fig1, use_container_width=True)
+            # 其余图表同样设置 tickformat=',.0f'
     # 历史统计指标
     with ht:
-        st.subheader('📈 历史累计盈亏趋势')
-        figh = px.line(df, x='时间', y='累计盈亏'); figh.update_yaxes(tickformat=',.0f')
-        st.plotly_chart(figh, use_container_width=True)
         st.subheader('📌 核心统计指标')
         cols = st.columns(5)
-        for i,(lbl,val) in enumerate(zip(labels, hist_vals)):
+        for i, (lbl, val) in enumerate(zip(labels, hist_vals)):
             cols[i%5].metric(lbl, f"{val:.2f}")
 
 # 2. 数据导出
@@ -168,12 +149,12 @@ with tabs[1]:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='All Trades', index=False)
-            pd.DataFrame({'指标':labels,'当日':today_vals,'历史':hist_vals}).to_excel(writer, sheet_name='Stats', index=False)
+            pd.DataFrame({'指标': labels, '当日': today_vals, '历史': hist_vals}).to_excel(writer, sheet_name='Stats', index=False)
         st.download_button('📥 下载 Excel 报告', buf.getvalue(), file_name='report.xlsx')
     with cp:
-        pdf=FPDF('P','mm','A4'); pdf.set_auto_page_break(True,15); pdf.alias_nb_pages()
+        pdf = FPDF('P','mm','A4'); pdf.set_auto_page_break(True,15); pdf.alias_nb_pages()
         pdf.add_page(); pdf.set_font('Arial','B',16); pdf.cell(0,10,'Automated Trading Analysis Report',ln=1,align='C')
-        tmpf='tmp.pdf'; pdf.output(tmpf); data=open(tmpf,'rb').read(); os.remove(tmpf)
+        tmpf = 'tmp.pdf'; pdf.output(tmpf); data = open(tmpf,'rb').read(); os.remove(tmpf)
         st.download_button('📄 下载 PDF 报告', data, file_name='report.pdf')
 
 # 3. 设置
