@@ -132,15 +132,15 @@ with tabs[0]:
     # 累计盈亏趋势
     st.subheader('📈 累计盈亏趋势')
     fig1 = px.line(df, x='时间', y='累计盈亏', title='累计盈亏趋势')
-    fig1.update_yaxes(tickformat='.0f')
+    fig1.update_yaxes(tickformat=',.0f')
     st.plotly_chart(fig1, use_container_width=True)
 
     # 日/小时盈亏
     st.subheader('📊 日/小时盈亏')
     fig2 = px.bar(df.groupby('日期')['盈亏'].sum().reset_index(), x='日期', y='盈亏', title='每日盈亏')
-    fig2.update_yaxes(tickformat='.0f')
+    fig2.update_yaxes(tickformat=',.0f')
     fig3 = px.bar(df.groupby('小时')['盈亏'].mean().reset_index(), x='小时', y='盈亏', title='每小时平均盈亏')
-    fig3.update_yaxes(tickformat='.0f')
+    fig3.update_yaxes(tickformat=',.0f')
     st.plotly_chart(fig2, use_container_width=True)
     st.plotly_chart(fig3, use_container_width=True)
 
@@ -153,11 +153,11 @@ with tabs[0]:
     st.plotly_chart(fig4, use_container_width=True)
     st.plotly_chart(fig5, use_container_width=True)
 
-        # Monte Carlo 模拟
+    # Monte Carlo 模拟
     st.subheader('🎲 Monte Carlo 模拟')
     sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
     fig6 = px.histogram(sims, nbins=40, title='Monte Carlo 累积盈亏分布')
-    fig6.update_yaxes(tickformat='.0f')
+    fig6.update_yaxes(tickformat=',.0f')
     st.plotly_chart(fig6, use_container_width=True)
 
     # 滑点与成交率分析
@@ -168,9 +168,8 @@ with tabs[0]:
         mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True)
         merged = df.merge(mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left')
         merged['滑点'] = merged['价格'] - merged['市场价格']
-                fig7 = px.histogram(merged, x='滑点', nbins=50, title='滑点分布')
-        fig7.update_yaxes(tickformat='.0f')
-fig7.update_yaxes(tickformat='.0f')
+        fig7 = px.histogram(merged, x='滑点', nbins=50, title='滑点分布')
+        fig7.update_yaxes(tickformat=',.0f')
         st.plotly_chart(fig7, use_container_width=True)
     else:
         st.info('请上传市场快照 CSV 以查看滑点分析')
@@ -245,35 +244,5 @@ with tabs[1]:
         pdf.add_page()
         pdf.set_font('Helvetica', 'B', 14)
         pdf.cell(0,10,'Monte Carlo Distribution', ln=1)
-        pdf.set_font('Helvetica', '', 12)
-        mc_fig = px.histogram(sims_pdf, nbins=40)
-        mc_img = mc_fig.to_image(format='png', width=600, height=300, engine='kaleido')
-        img_path = 'temp_mc.png'
-        with open(img_path, 'wb') as imgf:
-            imgf.write(mc_img)
-        pdf.image(img_path, x=15, y=pdf.get_y()+5, w=180)
-        os.remove(img_path)
-        # 写入 PDF 并下载
-        tmp_path = 'temp_report.pdf'
-        pdf.output(tmp_path)
-        with open(tmp_path, 'rb') as f:
-            pdf_bytes = f.read()
-        st.download_button(
-            label='下载 PDF 报告',
-            data=pdf_bytes,
-            file_name='report.pdf',
-            mime='application/pdf'
-        )
-
-# 3. 设置
-with tabs[2]:
-    st.subheader('⚙️ 设置')
-    st.markdown(
-        '''
-        通过右侧侧边栏直接调整以下参数：
-        - **缓存天数（天）**: 控制数据缓存过期时间
-        - **保留快照份数**: 控制历史快照最大保留数量
-        - **回撤回溯期 (天)**: 控制最大回撤计算的回溯窗口
-        '''
-    )
-    st.info('修改后请在侧边栏重新运行或刷新页面以生效。')
+        pdf.set_
+`}`]}
