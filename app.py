@@ -239,8 +239,13 @@ with tabs[1]:
         pdf.cell(0,10, 'Monte Carlo Distribution', ln=1)
         pdf.set_font('Helvetica', '', 12)
         mc_fig = px.histogram(sims_pdf, nbins=40)
-        mc_img = mc_fig.to_image(format='png', width=600, height=300, engine='kaleido')
-        pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
+mc_img = mc_fig.to_image(format='png', width=600, height=300, engine='kaleido')
+# 写入临时PNG并载入到PDF
+img_path = 'temp_mc.png'
+with open(img_path, 'wb') as imgf:
+    imgf.write(mc_img)
+pdf.image(img_path, x=15, y=pdf.get_y()+5, w=180)
+os.remove(img_path)(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
         tmp_path = 'temp_report.pdf'
         pdf.output(tmp_path)
         with open(tmp_path, 'rb') as f:
