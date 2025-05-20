@@ -42,7 +42,7 @@ if not uploaded:
     st.stop()
 
 # 历史日期范围选择
-min_date, max_date = date(1970,1,1), date.today()
+min_date, max_date = date(2025,5,1), date.today()
 st.sidebar.write('📅 选择历史分析日期范围')
 hist_range = st.sidebar.date_input('历史日期范围', [min_date, max_date])
 hist_start, hist_end = hist_range if isinstance(hist_range, list) else (min_date, max_date)
