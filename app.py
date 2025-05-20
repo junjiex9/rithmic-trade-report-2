@@ -154,43 +154,67 @@ with tabs[0]:
 with tabs[1]:
     st.subheader('📤 数据导出')
     col_excel, col_pdf = st.columns(2)
+
+    # 下载 Excel (.xlsx)
     with col_excel:
         excel_buf = io.BytesIO()
         with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Trades', index=False)
             pd.DataFrame({
-                '指标':['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar','回撤(天)'],
-                '数值':[len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
+                '指标': ['总交易次数','总盈亏','夏普率','胜率','盈亏比','最大回撤','Calmar','回撤(天)'],
+                '数值': [len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
             }).to_excel(writer, sheet_name='Metrics', index=False)
-        st.download_button('下载 Excel', excel_buf.getvalue(), file_name='report.xlsx')
+        st.download_button(
+            label='下载 Excel (.xlsx)',
+            data=excel_buf.getvalue(),
+            file_name='report.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    # 下载 PDF 报告
     with col_pdf:
         sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
         pdf = FPDF('P','mm','A4')
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.alias_nb_pages()
         pdf.set_font('Helvetica','',12)
-                pdf.add_page()
+
+        # 封面
+        pdf.add_page()
+        pdf.set_font('Helvetica','B',16)
+        pdf.cell(0,10,'Automated Trading Analysis Report', ln=1, align='C')
+        pdf.set_font('Helvetica','',10)
+        pdf.cell(0,10,f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}', ln=1, align='C')
+
+        # 核心指标页
+        pdf.add_page()
         pdf.set_font('Helvetica','B',14)
-        pdf.cell(0,10,'Monte Carlo Distribution',ln=1)
+        pdf.cell(0,10,'Core Metrics', ln=1)
+        pdf.set_font('Helvetica','',12)
+        labels = ['Total Trades','Total P/L','Sharpe Ratio','Win Rate','Profit Factor','Max Drawdown','Calmar Ratio','Recent Drawdown']
+        vals = [len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
+        for lbl, v in zip(labels, vals):
+            pdf.cell(60,8,lbl)
+            pdf.cell(0,8,f"{v:.2f}" if isinstance(v, float) else str(v), ln=1)
+
+        # Monte Carlo 分布
+        pdf.add_page()
+        pdf.set_font('Helvetica','B',14)
+        pdf.cell(0,10,'Monte Carlo Distribution', ln=1)
         pdf.set_font('Helvetica','',12)
         mc_img = px.histogram(sims, nbins=40).to_image(format='png', width=600, height=300)
-        # 写入临时文件并插入到PDF
         tmp_img = 'temp_mc.png'
         with open(tmp_img, 'wb') as f_img:
             f_img.write(mc_img)
         pdf.image(tmp_img, x=15, y=pdf.get_y()+5, w=180)
         os.remove(tmp_img)
-        # 导出PDF文件
-        tmp_pdf = 'tmp.pdf'
+
+        # 输出 PDF 并提供下载
+        tmp_pdf = 'temp_report.pdf'
         pdf.output(tmp_pdf)
         with open(tmp_pdf, 'rb') as f_pdf:
             pdf_bytes = f_pdf.read()
         st.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf', mime='application/pdf')
-        tmp_pdf = 'tmp.pdf'
-        pdf.output(tmp_pdf)
-        with open(tmp_pdf, 'rb') as f_pdf:
-            pdf_bytes = f_pdf.read()
-        st.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf', mime='application/pdf')('下载 PDF 报告', pdf_bytes, file_name='report.pdf', mime='application/pdf')
 
 # 3. 设置
 with tabs[2]:
