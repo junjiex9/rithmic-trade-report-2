@@ -169,25 +169,11 @@ with tabs[1]:
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.alias_nb_pages()
         pdf.set_font('Helvetica','',12)
-        pdf.add_page()
-        pdf.cell(0,60,'',ln=1)
-        pdf.set_font('Helvetica','B',16)
-        pdf.cell(0,10,'Automated Trading Analysis Report',ln=1,align='C')
-        pdf.set_font('Helvetica','',10)
-        pdf.cell(0,10,f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
-        pdf.add_page()
-        pdf.set_font('Helvetica','B',14)
-        pdf.cell(0,10,'Core Metrics',ln=1)
-        pdf.set_font('Helvetica','',12)
-        labels = ['Total Trades','Total P/L','Sharpe Ratio','Win Rate','Profit Factor','Max Drawdown','Calmar Ratio','Recent Drawdown']
-        vals = [len(df), df['盈亏'].sum(), *compute_metrics(lookback_days)]
-        for lbl, v in zip(labels, vals):
-            pdf.cell(60,8,lbl); pdf.cell(0,8,f"{v:.2f}" if isinstance(v,float) else str(v),ln=1)
-        pdf.add_page()
+                pdf.add_page()
         pdf.set_font('Helvetica','B',14)
         pdf.cell(0,10,'Monte Carlo Distribution',ln=1)
         pdf.set_font('Helvetica','',12)
-                mc_img = px.histogram(sims, nbins=40).to_image(format='png', width=600, height=300)
+        mc_img = px.histogram(sims, nbins=40).to_image(format='png', width=600, height=300)
         # 写入临时文件并插入到PDF
         tmp_img = 'temp_mc.png'
         with open(tmp_img, 'wb') as f_img:
@@ -195,6 +181,11 @@ with tabs[1]:
         pdf.image(tmp_img, x=15, y=pdf.get_y()+5, w=180)
         os.remove(tmp_img)
         # 导出PDF文件
+        tmp_pdf = 'tmp.pdf'
+        pdf.output(tmp_pdf)
+        with open(tmp_pdf, 'rb') as f_pdf:
+            pdf_bytes = f_pdf.read()
+        st.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf', mime='application/pdf')
         tmp_pdf = 'tmp.pdf'
         pdf.output(tmp_pdf)
         with open(tmp_pdf, 'rb') as f_pdf:
