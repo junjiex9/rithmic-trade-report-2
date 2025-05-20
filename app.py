@@ -114,7 +114,7 @@ def compute_stats(data, lookback):
     mdd_day = (csum - csum.cummax()).min() if not csum.empty else np.nan
     mdd_look = (csum - csum.rolling(window=lookback, min_periods=1).max()).min() if not csum.empty else np.nan
     mdd_hist = mdd_day
-    return [sharpe, winrate, profit_factor, ann, downside, var95, cvar95, mdd_day, mdd_look, mdd_hist]]
+    return [sharpe, winrate, profit_factor, ann, downside, var95, cvar95, mdd_day, mdd_look, mdd_hist]
 
 labels = ['夏普比率','胜率','盈亏比','年化收益率','下行风险','VaR95','CVaR95','最大回撤(当日)','最大回撤(30天)','最大回撤(历史)']
 today_vals = compute_stats(trades_today, lookback_days)
