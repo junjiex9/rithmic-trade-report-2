@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io, os
 import plotly.express as px
+import plotly.io as pio
 from datetime import datetime
 from fpdf import FPDF
 
@@ -29,7 +30,7 @@ for key, default in [('cache_days', DEFAULT_CACHE_DAYS), ('max_snapshots', DEFAU
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ============ 侧边栏上传 ============
+# ============ 侧边栏上传与设置 ============
 st.sidebar.header('📁 上传与设置')
 uploaded = st.sidebar.file_uploader('上传交易 CSV', type='csv', accept_multiple_files=True)
 market_file = st.sidebar.file_uploader('市场快照 CSV', type='csv')
@@ -47,6 +48,11 @@ st.session_state['lookback_days'] = lookback_days
 if not uploaded:
     st.sidebar.info('请上传交易CSV以开始。')
     st.stop()
+
+# ============ 风险阈值预警 ============
+st.sidebar.header('⚠️ 风险阈值预警')
+max_loss = st.sidebar.number_input('单笔最大亏损', value=-100.0)
+max_trades = st.sidebar.number_input('日内最大交易次数', value=50)
 
 # ============ 数据加载 ============
 @st.cache_data(show_spinner=False, max_entries=10, ttl=3600*24*cache_days)
@@ -92,19 +98,13 @@ def manage_snapshots(df):
 
 manage_snapshots(df)
 
-# 风险阈值预警
-st.sidebar.header('⚠️ 风险阈值预警')
-# 单笔最大亏损阈值（负数代表亏损）
-max_loss = st.sidebar.number_input('单笔最大亏损', value=-100.0)
-# 日内最大交易次数阈值
-max_trades = st.sidebar.number_input('日内最大交易次数', value=50)
-# 检测并展示警告
+# 风险警示
 if '盈亏' in df.columns:
     if df['盈亏'].min() < max_loss:
-        st.warning(f"⚠️ 存在单笔盈亏低于阈值 ({max_loss})！最小盈亏：{df['盈亏'].min():.2f}")
+        st.warning(f"⚠️ 存在单笔盈亏低于阈值({max_loss})！最小盈亏：{df['盈亏'].min():.2f}")
     today_trades = df[df['时间'].dt.date == datetime.today().date()].shape[0]
     if today_trades > max_trades:
-        st.warning(f"⚠️ 今日交易次数 {today_trades} 超过阈值 ({max_trades})！")
+        st.warning(f"⚠️ 今日交易次数 {today_trades} 超过阈值({max_trades})！")
 
 # 衍生字段
 df['累计盈亏'] = df['盈亏'].cumsum()
@@ -129,19 +129,19 @@ tabs = st.tabs(['报告视图','数据导出','⚙️ 设置'])
 
 # 1. 报告视图
 with tabs[0]:
-    # 1️⃣ 累计盈亏趋势
+    # 累计盈亏趋势
     st.subheader('📈 累计盈亏趋势')
     fig1 = px.line(df, x='时间', y='累计盈亏', title='累计盈亏趋势')
     st.plotly_chart(fig1, use_container_width=True)
 
-    # 2️⃣ 日/小时盈亏
+    # 日/小时盈亏
     st.subheader('📊 日/小时盈亏')
     fig2 = px.bar(df.groupby('日期')['盈亏'].sum().reset_index(), x='日期', y='盈亏', title='每日盈亏')
     fig3 = px.bar(df.groupby('小时')['盈亏'].mean().reset_index(), x='小时', y='盈亏', title='每小时平均盈亏')
     st.plotly_chart(fig2, use_container_width=True)
     st.plotly_chart(fig3, use_container_width=True)
 
-    # 3️⃣ 持仓时长分布
+    # 持仓时长分布
     st.subheader('⏳ 持仓时长分布（分钟）')
     sorted_df = df.sort_values(['账户','品种','时间'])
     sorted_df['持仓时长'] = sorted_df.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
@@ -150,13 +150,13 @@ with tabs[0]:
     st.plotly_chart(fig4, use_container_width=True)
     st.plotly_chart(fig5, use_container_width=True)
 
-    # 4️⃣ Monte Carlo 模拟
+    # Monte Carlo 模拟
     st.subheader('🎲 Monte Carlo 模拟')
     sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
     fig6 = px.histogram(sims, nbins=40, title='Monte Carlo 累积盈亏分布')
     st.plotly_chart(fig6, use_container_width=True)
 
-    # 5️⃣ 滑点与成交率分析
+    # 滑点与成交率
     if market_file:
         st.subheader('🕳️ 滑点与成交率分析')
         mp = pd.read_csv(market_file)
@@ -169,7 +169,7 @@ with tabs[0]:
     else:
         st.info('请上传市场快照 CSV 以查看滑点分析')
 
-    # 6️⃣ 社交舆情热力图
+    # 社交舆情热力图
     if sent_file:
         st.subheader('📣 社交舆情热力图')
         ds = pd.read_csv(sent_file)
@@ -188,7 +188,7 @@ with tabs[0]:
     cols[1].metric('胜率', f"{winrate:.2%}")
     cols[2].metric('盈亏比', f"{pf:.2f}")
     cols[3].metric('最大回撤', f"{mdd:.2f}")
-    cols[4].metric(f'{lookback_days}天回撤', f"{recent_dd:.2f}")
+    cols[4].metric(f"{lookback_days}天回撤", f"{recent_dd:.2f}")
     cols[5].metric('Calmar 比率', f"{calmar:.2f}")
 
 # 2. 数据导出
@@ -238,7 +238,8 @@ with tabs[1]:
         pdf.set_font('Helvetica', 'B', 14)
         pdf.cell(0,10, 'Monte Carlo Distribution', ln=1)
         pdf.set_font('Helvetica', '', 12)
-        mc_img = px.histogram(sims_pdf, nbins=40).to_image(format='png', width=600, height=300)
+        mc_fig = px.histogram(sims_pdf, nbins=40)
+        mc_img = mc_fig.to_image(format='png', width=600, height=300, engine='kaleido')
         pdf.image(io.BytesIO(mc_img), x=15, y=pdf.get_y()+5, w=180)
         tmp_path = 'temp_report.pdf'
         pdf.output(tmp_path)
@@ -262,4 +263,4 @@ with tabs[2]:
         - **回撤回溯期 (天)**: 控制最大回撤计算的回溯窗口
         '''
     )
-    st.info('修改后请在侧边栏刷新或重新运行以生效。')
+    st.info('修改后请在侧边栏重新运行或刷新页面以生效。')
