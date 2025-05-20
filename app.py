@@ -96,20 +96,25 @@ df['小时'] = df['时间'].dt.hour
 
 # 统计计算：核心统计指标
 def compute_stats(data, lookback):
-    pnl = data['盈亏']
+    # ensure '时间' column exists
+    if '时间' in data.columns and not data.empty:
+        times = data['时间']
+        period = max((times.max() - times.min()).days, 1)
+    else:
+        period = 1
+    pnl = data['盈亏'] if '盈亏' in data.columns else pd.Series([], dtype=float)
     csum = pnl.cumsum()
-    period = max((data['时间'].max() - data['时间'].min()).days, 1)
     sharpe = pnl.mean()/pnl.std()*np.sqrt(252) if pnl.std() else np.nan
-    winrate = (pnl>0).mean()
-    profit_factor = pnl[pnl>0].sum()/(-pnl[pnl<0].sum()) if pnl.min()<0 else np.nan
-    ann = pnl.sum()/period*252
-    downside = pnl[pnl<0].std()
-    var95 = -pnl.quantile(0.05)
-    cvar95 = -pnl[pnl<=pnl.quantile(0.05)].mean()
-    mdd_day = (csum - csum.cummax()).min()
-    mdd_look = (csum - csum.rolling(window=lookback).max()).min()
+    winrate = (pnl>0).mean() if not pnl.empty else np.nan
+    profit_factor = (pnl[pnl>0].sum()/(-pnl[pnl<0].sum())) if (pnl < 0).any() else np.nan
+    ann = pnl.sum()/period*252 if period else np.nan
+    downside = pnl[pnl<0].std() if (pnl<0).any() else np.nan
+    var95 = -pnl.quantile(0.05) if not pnl.empty else np.nan
+    cvar95 = -pnl[pnl<=pnl.quantile(0.05)].mean() if not pnl.empty else np.nan
+    mdd_day = (csum - csum.cummax()).min() if not csum.empty else np.nan
+    mdd_look = (csum - csum.rolling(window=lookback, min_periods=1).max()).min() if not csum.empty else np.nan
     mdd_hist = mdd_day
-    return [sharpe, winrate, profit_factor, ann, downside, var95, cvar95, mdd_day, mdd_look, mdd_hist]
+    return [sharpe, winrate, profit_factor, ann, downside, var95, cvar95, mdd_day, mdd_look, mdd_hist]sharpe, winrate, profit_factor, ann, downside, var95, cvar95, mdd_day, mdd_look, mdd_hist]
 
 labels = ['夏普比率','胜率','盈亏比','年化收益率','下行风险','VaR95','CVaR95','最大回撤(当日)','最大回撤(30天)','最大回撤(历史)']
 today_vals = compute_stats(trades_today, lookback_days)
