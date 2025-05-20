@@ -9,7 +9,9 @@ from fpdf import FPDF
 # ============ 页面配置 ============
 st.set_page_config(
     page_title="📈 Rithmic 自动化交易分析报告生成器",
-    layout="wide", initial_sidebar_state="expanded", page_icon="📊"
+    layout="wide",
+    initial_sidebar_state="expanded",
+    page_icon="📊"
 )
 
 # ============ 多语言支持 ============
@@ -48,7 +50,8 @@ def load_and_clean(files):
     for f in files:
         content = f.getvalue().decode('utf-8', errors='ignore').splitlines()
         idx = next((i for i,l in enumerate(content) if 'Completed Orders' in l), None)
-        if idx is None: continue
+        if idx is None:
+            continue
         header = content[idx+1].replace('"','').split(',')
         body = '\n'.join(content[idx+2:])
         df = pd.read_csv(io.StringIO(body), names=header)
@@ -68,10 +71,12 @@ def load_and_clean(files):
 
 df = load_and_clean(uploaded)
 
-# 快照管理
+# 管理快照
 def manage_snapshots(df):
-    SNAP_DIR = 'snapshots'; os.makedirs(SNAP_DIR, exist_ok=True)
-    snap = f"snapshot_{datetime.now():%Y%m%d_%H%M%S}.csv"; df.to_csv(os.path.join(SNAP_DIR, snap), index=False)
+    SNAP_DIR = 'snapshots'
+    os.makedirs(SNAP_DIR, exist_ok=True)
+    snap = f"snapshot_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    df.to_csv(os.path.join(SNAP_DIR, snap), index=False)
     snaps = sorted(os.listdir(SNAP_DIR))
     for old in snaps[:-max_snapshots]: os.remove(os.path.join(SNAP_DIR, old))
     st.sidebar.success(f"已加载 {len(df)} 条交易，快照：{snap}")
@@ -86,48 +91,143 @@ if len(trades_today)>max_trades:
     st.sidebar.warning(f"今日交易{len(trades_today)}次, 超阈值！")
 
 # 衍生字段
-df['累计盈亏']=df['盈亏'].cumsum(); df['日期']=df['时间'].dt.date; df['小时']=df['时间'].dt.hour
+df['累计盈亏'] = df['盈亏'].cumsum()
+df['日期'] = df['时间'].dt.date
+df['小时'] = df['时间'].dt.hour
 
-# 统计函数
+# 统计计算 --- 核心统计指标
 def compute_stats(data, lookback):
-    total_trades=len(data); total_pl=data['盈亏'].sum(); avg_pl=data['盈亏'].mean() if total_trades else 0
-    cust=cumsum=cumsum=pd.Series(data['盈亏']).cumsum()
-    max_dd=(cumsum - cumsum.cummax()).min() if total_trades else 0
-    rel=(cumsum - cumsum.cummax())/cumsum.cummax(); max_rel=rel.min() if total_trades else 0
-    pf=data[data['盈亏']>0]['盈亏'].sum() / -data[data['盈亏']<0]['盈亏'].sum() if total_trades and data['盈亏'].min()<0 else np.nan
-    profit_rate= total_pl/data['数量'].sum() if data['数量'].sum() else np.nan
-    win_cnt=(data['盈亏']>0).sum(); win_sum=data[data['盈亏']>0]['盈亏'].sum(); win_avg=data[data['盈亏']>0]['盈亏'].mean() if win_cnt else 0
-    loss_cnt=(data['盈亏']<0).sum(); loss_sum=data[data['盈亏']<0]['盈亏'].sum(); loss_avg=data[data['盈亏']<0]['盈亏'].mean() if loss_cnt else 0
-    total_days=data['日期'].nunique(); win_days=data[data['盈亏']>0]['日期'].nunique(); loss_days=data[data['盈亏']<0]['日期'].nunique()
-    total_comm=data['手续费'].sum()
-    # 核心额外指标
-    sharpe=data['盈亏'].mean()/data['盈亏'].std()*np.sqrt(252) if data['盈亏'].std() else np.nan
-    winrate=(data['盈亏']>0).mean(); pf_ratio=pf; ann_ret=total_pl/((data['时间'].max()-data['时间'].min()).days or 1)*252
-    downside=data[data['盈亏']<0]['盈亏'].std(); var95=-data['盈亏'].quantile(0.05)
-    cvar95=-data[data['盈亏']<=data['盈亏'].quantile(0.05)]['盈亏'].mean()
-    roll_max= cumsum.rolling(window=lookback).max(); dd_lookback=(cumsum-roll_max).min()
-    return [total_trades,total_pl,avg_pl,max_dd,max_rel,pf,profit_rate,win_cnt,win_sum,win_avg,loss_cnt,loss_sum,loss_avg,total_days,win_days,loss_days,total_comm,sharpe,winrate,pf_ratio,ann_ret,downside,var95,cvar95,dd_lookback]
+    period_days = max((data['时间'].max() - data['时间'].min()).days, 1)
+    pnl = data['盈亏']; csum = pnl.cumsum()
+    sharpe = pnl.mean()/pnl.std()*np.sqrt(252) if pnl.std() else np.nan
+    winrate = (pnl>0).mean()
+    profit_factor = pnl[pnl>0].sum()/(-pnl[pnl<0].sum()) if pnl.min()<0 else np.nan
+    ann_return = pnl.sum()/period_days*252
+    downside_dev = pnl[pnl<0].std()
+    var95 = -pnl.quantile(0.05)
+    cvar95 = -pnl[pnl<=pnl.quantile(0.05)].mean()
+    daily_mdd = (csum - csum.cummax()).min()
+    lookback_mdd = (csum - csum.rolling(window=lookback).max()).min()
+    hist_mdd = (csum - csum.cummax()).min()
+    return [
+        sharpe, winrate, profit_factor, ann_return,
+        downside_dev, var95, cvar95, daily_mdd,
+        lookback_mdd, hist_mdd
+    ]
+
+labels = [
+    '夏普比率','胜率','盈亏比','年化收益率','下行风险',
+    'VaR95','CVaR95','最大回撤 (当日)','最大回撤 (30天)','最大回撤（历史）'
+]
+today_vals = compute_stats(trades_today, lookback_days)
+hist_vals = compute_stats(df, lookback_days)
 
 # UI布局
-tabs=st.tabs(['报告视图','数据导出','⚙️ 设置'])
+tabs = st.tabs(['报告视图','数据导出','⚙️ 设置'])
+
+# 1. 报告视图
 with tabs[0]:
-    st.subheader('📅 当日成交明细'); st.dataframe(trades_today)
-    st.subheader('📌 当日 & 历史统计指标')
-    labels=['交易总笔数','总盈亏','平均盈亏','最大回撤','最大相对跌幅','利润系数','利润率','盈利交易','盈利总计','平均利润','亏损交易','亏损总额','平均亏损','总天数','盈利天数','亏损天数','手续费','夏普率','胜率','盈亏比','年化收益率','下行风险','VaR95','CVaR95',f'{lookback_days}天回撤']
-    today_vals=compute_stats(trades_today,lookback_days); hist_vals=compute_stats(df,lookback_days)
-    for title,vals in [('当日统计指标',today_vals),('历史统计指标',hist_vals)]:
-        st.markdown(f"### {title}")
-        cols=st.columns(4)
-        for i,(lbl,val) in enumerate(zip(labels,vals)):
-            cols[i%4].metric(lbl,f'{val:.2f}' if isinstance(val,(float,np.floating)) else str(val))
+    st.subheader('📌 当日统计指标')
+    cols = st.columns(5)
+    for i,(lbl,val) in enumerate(zip(labels,today_vals)):
+        disp = f"{val:.2f}" if isinstance(val,float) else str(val)
+        cols[i%5].metric(lbl,disp)
+
+    st.subheader('📈 累计盈亏趋势')
+    st.plotly_chart(px.line(df,x='时间',y='累计盈亏').update_yaxes(tickformat=',.0f'),use_container_width=True)
+
+    st.subheader('📊 日/小时盈亏')
+    figd = px.bar(df.groupby('日期')['盈亏'].sum().reset_index(),x='日期',y='盈亏')
+    figh = px.bar(df.groupby('小时')['盈亏'].mean().reset_index(),x='小时',y='盈亏')
+    figd.update_yaxes(tickformat=',.0f'); figh.update_yaxes(tickformat=',.0f')
+    st.plotly_chart(figd,use_container_width=True)
+    st.plotly_chart(figh,use_container_width=True)
+
+    st.subheader('⏳ 持仓时长分布（分钟）')
+    sd = df.sort_values(['账户','品种','时间'])
+    sd['持仓时长'] = sd.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
+    st.plotly_chart(px.box(sd,x='账户',y='持仓时长'),use_container_width=True)
+
+    st.subheader('🎲 Monte Carlo 模拟')
+    sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
+    hist = px.histogram(sims,nbins=40).update_yaxes(tickformat=',.0f')
+    st.plotly_chart(hist,use_container_width=True)
+
+    if market_file:
+        st.subheader('🕳️ 滑点与成交率分析')
+        mp = pd.read_csv(market_file)
+        mp['Time'] = pd.to_datetime(mp['Time'],errors='coerce')
+        merged = df.merge(mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}), left_on=['品种','时间'], right_on=['品种','Time'], how='left')
+        merged['滑点'] = merged['价格']-merged['市场价格']
+        fig = px.histogram(merged,x='滑点').update_yaxes(tickformat=',.0f')
+        st.plotly_chart(fig,use_container_width=True)
+
+    if sent_file:
+        st.subheader('📣 社交舆情热力图')
+        ds = pd.read_csv(sent_file)
+        ds['Date'] = pd.to_datetime(ds['Date'],errors='coerce').dt.date
+        heat = ds.pivot_table(values='SentimentScore',index='Symbol',columns='Date')
+        st.plotly_chart(px.imshow(heat,aspect='auto'),use_container_width=True)
+
+    st.subheader('📌 历史统计指标')
+    cols = st.columns(5)
+    for i,(lbl,val) in enumerate(zip(labels,hist_vals)):
+        disp = f"{val:.2f}" if isinstance(val,float) else str(val)
+        cols[i%5].metric(lbl,disp)
+
+# 2. 数据导出
 with tabs[1]:
-    # 数据导出省略...
-    pass
+    st.subheader('📤 数据导出')
+    col_excel, col_pdf = st.columns(2)
+
+    with col_excel:
+        excel_buf = io.BytesIO()
+        with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Trades', index=False)
+            pd.DataFrame({
+                '指标': labels,
+                '当日': today_vals,
+                '历史': hist_vals
+            }).to_excel(writer, sheet_name='Stats', index=False)
+        st.download_button(
+            '下载 Excel (.xlsx)', excel_buf.getvalue(),
+            file_name='report.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    with col_pdf:
+        pdf = FPDF('P','mm','A4')
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.alias_nb_pages()
+        pdf.set_font('Helvetica','',12)
+        # 封面
+        pdf.add_page()
+        pdf.set_font('Helvetica','B',16)
+        pdf.cell(0,10,'Automated Trading Analysis Report',ln=1,align='C')
+        pdf.set_font('Helvetica','',10)
+        pdf.cell(0,10,f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}',ln=1,align='C')
+        # 核心统计指标
+        pdf.add_page()
+        pdf.set_font('Helvetica','B',14)
+        pdf.cell(0,10,'📌 核心统计指标',ln=1)
+        pdf.set_font('Helvetica','',12)
+        for lbl, val in zip(labels, hist_vals):
+            pdf.cell(60,8,lbl)
+            pdf.cell(0,8,f"{val:.2f}" if isinstance(val,float) else str(val),ln=1)
+        # Monte Carlo 图
+        pdf.add_page()
+        pdf.set_font('Helvetica','B',14)
+        pdf.cell(0,10,'Monte Carlo Distribution',ln=1)
+        mc_img = px.histogram(sims, nbins=40).to_image(format='png', width=600, height=300)
+        tmp_img = 'temp_mc.png'
+        with open(tmp_img,'wb') as f_img: f_img.write(mc_img)
+        pdf.image(tmp_img, x=15, y=pdf.get_y()+5, w=180)
+        os.remove(tmp_img)
+        tmp_pdf = 'temp_report.pdf'
+        pdf.output(tmp_pdf)
+        with open(tmp_pdf,'rb') as f_pdf: pdf_bytes = f_pdf.read()
+        st.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf', mime='application/pdf')
+
+# 3. 设置
 with tabs[2]:
     st.subheader('⚙️ 设置')
-    st.markdown("""
-- **缓存天数（天）**: 侧边栏输入框  
-- **保留快照份数**: 侧边栏输入框  
-- **回撤回溯期 (天)**: 侧边栏滑动条  
-""")
-    st.info('修改后请刷新或重新运行以生效。')
+    st.write('在侧边栏调整 缓存天数、快照保留、回撤回溯期 后刷新以生效。')
