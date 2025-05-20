@@ -77,9 +77,9 @@ def load_and_clean(files):
     df['方向'] = df['方向'].map({'B':'Buy','S':'Sell'})
     for col in ['价格','数量','手续费','盈亏']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
-    # 考虑成交手数，盈亏按成交手数累计
-    df['盈亏'] = df['盈亏'] * df['数量']
-    return df.dropna(subset=['时间','方向']).sort_values('时间').reset_index(drop=True)
+        # Closed Profit/Loss 已为该交易完整盈亏，无需再次乘以数量
+    # df['盈亏'] = df['盈亏'] * df['数量']
+    return df.dropna(subset=['时间','方向']).sort_values('时间').reset_index(drop=True)(subset=['时间','方向']).sort_values('时间').reset_index(drop=True)
 
 df = load_and_clean(uploaded)
 
