@@ -67,7 +67,7 @@ def load_and_clean(files):
         df0['上传文件'] = f.name
         records.append(df0)
     df = pd.concat(records, ignore_index=True)
-    # 只保留已完成的订单，并正确提取实盘盈亏和成交手数
+    # 只保留已完成的订单，提取实盘盈亏和成交手数
     df = df[df['Status']=='Filled'][[
         'Account','Buy/Sell','Symbol','Avg Fill Price','Qty Filled',
         'Update Time (CST)','Commission Fill Rate','Closed Profit/Loss','上传文件'
@@ -77,6 +77,8 @@ def load_and_clean(files):
     df['方向'] = df['方向'].map({'B':'Buy','S':'Sell'})
     for col in ['价格','数量','手续费','盈亏']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
+    # 考虑成交手数，盈亏按成交手数累计
+    df['盈亏'] = df['盈亏'] * df['数量']
     return df.dropna(subset=['时间','方向']).sort_values('时间').reset_index(drop=True)
 
 df = load_and_clean(uploaded)
@@ -141,20 +143,76 @@ with tabs_main[0]:
     with tab_today:
         st.subheader('当日交易概览')
         st.dataframe(trades_today)
-        # 省略其余图表渲染...
-        st.subheader('📌 核心统计指标')
+        # 📈 累计盈亏趋势
+        fig1 = px.line(trades_today, x='时间', y='累计盈亏', title='累计盈亏趋势')
+        fig1.update_yaxes(tickformat=',.0f')
+        st.plotly_chart(fig1, use_container_width=True)
+        # 📊 时间盈亏（分钟/小时格式）
+        tmp = trades_today.copy()
+        tmp['分钟数'] = tmp['时间'].dt.hour * 60 + tmp['时间'].dt.minute
+        tmp['时间标签'] = tmp['分钟数'].apply(lambda m: f"{m}分" if m < 60 else f"{m//60}小时{m%60}分")
+        fig_time = px.bar(tmp.groupby('时间标签')['盈亏'].sum().reset_index(), x='时间标签', y='盈亏', title='时间盈亏')
+        fig_time.update_yaxes(tickformat=',.0f')
+        st.plotly_chart(fig_time, use_container_width=True)
+        # ⏳ 持仓时长分布
+        sorted_today = trades_today.sort_values(['账户','品种','时间']).copy()
+        sorted_today['持仓时长'] = sorted_today.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
+        fig4 = px.box(sorted_today, x='账户', y='持仓时长', title='持仓时长分布（分钟）')
+        fig4.update_yaxes(tickformat=',.0f')
+        st.plotly_chart(fig4, use_container_width=True)
+        # 🎲 Monte Carlo 模拟
+        sims = [np.random.choice(trades_today['盈亏'], len(trades_today), replace=True).cumsum()[-1] for _ in range(500)]
+        fig5 = px.histogram(sims, nbins=40, title='Monte Carlo 累积盈亏分布')
+        fig5.update_yaxes(tickformat=',.0f')
+        st.plotly_chart(fig5, use_container_width=True)
+        # 🕳️ 滑点分析
+        if market_file:
+            mp = pd.read_csv(market_file)
+            mp['Time']=pd.to_datetime(mp['Time'], errors='coerce')
+            mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True)
+            md = trades_today.merge(mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left')
+            md['滑点']=md['价格']-md['市场价格']
+            fig6=px.histogram(md, x='滑点', title='滑点分布')
+            fig6.update_yaxes(tickformat=',.0f')
+            st.plotly_chart(fig6, use_container_width=True)
+        # 📣 舆情热力图
+        if sent_file:
+            ss=pd.read_csv(sent_file); ss['Date']=pd.to_datetime(ss['Date'], errors='coerce').dt.date
+            heat=ss.pivot_table(values='SentimentScore', index='Symbol', columns='Date')
+            fig7=px.imshow(heat, aspect='auto', title='舆情热力图')
+            st.plotly_chart(fig7, use_container_width=True)
+        # 核心统计指标
+        st.subheader('📌 当日核心统计指标')
         cols=st.columns(4)
         for i,(lbl,val) in enumerate(zip(labels,today_stats)):
             cols[i%4].metric(lbl,f"{val:.2f}")
     with tab_hist:
         st.subheader('历史交易概览')
         st.dataframe(hist_df)
-        st.subheader('📌 核心统计指标')
+        # 同上，历史视图使用相同逻辑，只需更改数据源
+        fig_h1=px.line(hist_df, x='时间', y='累计盈亏', title='历史累计盈亏趋势')
+        fig_h1.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig_h1,use_container_width=True)
+        tmp2 = hist_df.copy()
+        tmp2['分钟数']=tmp2['时间'].dt.hour*60+tmp2['时间'].dt.minute
+        tmp2['时间标签']=tmp2['分钟数'].apply(lambda m: f"{m}分" if m<60 else f"{m//60}小时{m%60}分")
+        fig_h2=px.bar(tmp2.groupby('时间标签')['盈亏'].sum().reset_index(), x='时间标签', y='盈亏', title='历史时间盈亏')
+        fig_h2.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig_h2,use_container_width=True)
+        # 持仓时长分布（历史）
+        sorted_hist=hist_df.sort_values(['账户','品种','时间']).copy()
+        sorted_hist['持仓时长']=sorted_hist.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
+        fig_h3=px.box(sorted_hist, x='账户', y='持仓时长', title='历史持仓时长分布（分钟）')
+        fig_h3.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig_h3,use_container_width=True)
+        # Monte Carlo 模拟（历史）
+        sims_h=[np.random.choice(hist_df['盈亏'], len(hist_df), replace=True).cumsum()[-1] for _ in range(500)]
+        fig_h4=px.histogram(sims_h, nbins=40, title='历史 Monte Carlo 累积盈亏分布')
+        fig_h4.update_yaxes(tickformat=',.0f'); st.plotly_chart(fig_h4,use_container_width=True)
+        # 滑点与舆情（历史）略
+        st.subheader('📌 历史核心统计指标')
         cols=st.columns(4)
         for i,(lbl,val) in enumerate(zip(labels,hist_stats)):
             cols[i%4].metric(lbl,f"{val:.2f}")
-
 # 数据导出
+
 with tabs_main[1]:
     st.subheader('📤 数据导出')
     ce, cp = st.columns(2)
@@ -162,7 +220,40 @@ with tabs_main[1]:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             df.to_excel(writer, 'AllTrades', index=False)
-            pd.DataFrame({'指标':labels,'当日':today_stats,'历史':hist_stats}).to_excel(writer,'Stats',index=False)
-        st.download_button('📥 下载 Excel', buf.getvalue(), 'report.xlsx',mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    with`
-}]}
+            pd.DataFrame({'指标':labels, '当日':today_stats, '历史':hist_stats}).to_excel(writer, 'Stats', index=False)
+        st.download_button('📥 下载 Excel', buf.getvalue(), 'report.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    with cp:
+        # PDF 导出
+        pdf = FPDF('P','mm','A4')
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.alias_nb_pages()
+        pdf.add_page()
+        pdf.set_font('Arial','B',16)
+        pdf.cell(0,10,'Automated Trading Report', ln=1, align='C')
+        pdf.set_font('Arial','',12)
+        pdf.cell(0,8,f'Generated: {datetime.now():%Y-%m-%d %H:%M:%S}', ln=1)
+        pdf.ln(5)
+        pdf.set_font('Arial','B',14)
+        pdf.cell(0,10,'核心统计指标 (当日)', ln=1)
+        pdf.set_font('Arial','',12)
+        for lbl,val in zip(labels, today_stats):
+            pdf.cell(60,8,lbl)
+            pdf.cell(0,8,f"{val:.2f}", ln=1)
+        pdf.ln(5)
+        pdf.set_font('Arial','B',14)
+        pdf.cell(0,10,'核心统计指标 (历史)', ln=1)
+        pdf.set_font('Arial','',12)
+        for lbl,val in zip(labels, hist_stats):
+            pdf.cell(60,8,lbl)
+            pdf.cell(0,8,f"{val:.2f}", ln=1)
+        tmp_pdf = 'temp_report.pdf'
+        pdf.output(tmp_pdf)
+        with open(tmp_pdf,'rb') as f:
+            pdf_bytes = f.read()
+        os.remove(tmp_pdf)
+        st.download_button('📄 下载 PDF', pdf_bytes, 'report.pdf', mime='application/pdf')
+
+# 设置
+with tabs_main[2]:
+    st.subheader('⚙️ 设置')
+    st.write('请在侧边栏调整“缓存天数”、“保留快照份数”、“回撤回溯期”和“历史日期范围”，然后刷新应用生效。')
