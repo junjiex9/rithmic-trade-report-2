@@ -185,21 +185,52 @@ with tabs[0]:
         fig8 = px.imshow(heat, aspect='auto', title='舆情热力图')
         st.plotly_chart(fig8, use_container_width=True)
     
-    # 当日成交明细
+        # 当日成交明细
     st.subheader('📅 当日成交明细')
     trades_today = df[df['时间'].dt.date == datetime.now().date()]
     st.dataframe(trades_today)
-    
-    # 核心指标
-    st.subheader('📌 核心统计指标')
-    sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(lookback_days)
-    cols = st.columns(6)
-    cols[0].metric('夏普率', f"{sharpe:.2f}")
-    cols[1].metric('胜率', f"{winrate:.2%}")
-    cols[2].metric('盈亏比', f"{pf:.2f}")
-    cols[3].metric('最大回撤', f"{mdd:.2f}")
-    cols[4].metric(f"{lookback_days}天回撤", f"{recent_dd:.2f}")
-    cols[5].metric('Calmar 比率', f"{calmar:.2f}")
+
+    # 当日统计指标
+    st.subheader('📌 当日统计指标')
+    def compute_stats(data):
+        total_trades = len(data)
+        total_pl = data['盈亏'].sum()
+        avg_pl = data['盈亏'].mean() if total_trades else 0
+        max_dd = (data['盈亏'].cumsum() - data['盈亏'].cumsum().cummax()).min() if total_trades else 0
+        rel_dd = (data['盈亏'].cumsum() - data['盈亏'].cumsum().cummax()) / data['盈亏'].cumsum().cummax()
+        max_rel_dd = rel_dd.min() if total_trades else 0
+        profit_factor_ratio = data[data['盈亏']>0]['盈亏'].sum() / -data[data['盈亏']<0]['盈亏'].sum() if total_trades and data['盈亏'].min()<0 else np.nan
+        profit_rate = total_pl / data['数量'].sum() if data['数量'].sum() else np.nan
+        win_cnt = (data['盈亏']>0).sum()
+        win_sum = data[data['盈亏']>0]['盈亏'].sum()
+        win_avg = data[data['盈亏']>0]['盈亏'].mean() if win_cnt else 0
+        loss_cnt = (data['盈亏']<0).sum()
+        loss_sum = data[data['盈亏']<0]['盈亏'].sum()
+        loss_avg = data[data['盈亏']<0]['盈亏'].mean() if loss_cnt else 0
+        total_days = data['日期'].nunique()
+        win_days = data[data['盈亏']>0]['日期'].nunique()
+        loss_days = data[data['盈亏']<0]['日期'].nunique()
+        total_comm = data['手续费'].sum()
+        return (total_trades, total_pl, avg_pl, max_dd, max_rel_dd, profit_factor_ratio,
+                profit_rate, win_cnt, win_sum, win_avg, loss_cnt, loss_sum, loss_avg,
+                total_days, win_days, loss_days, total_comm)
+
+    today_stats = compute_stats(trades_today)
+    labels = ['交易总笔数','总盈亏','平均盈亏','最大回撤','最大相对跌幅','利润系数','利润率',
+              '盈利的交易','盈利总计','平均利润','亏损的交易','亏损总额','平均亏损',
+              '总天数','盈利天数','亏损天数','手续费']
+    cols = st.columns(4)
+    for i, (lbl, val) in enumerate(zip(labels, today_stats)):
+        cols[i%4].metric(lbl, f"{val if not isinstance(val, float) else f'{val:.2f}'}")
+
+    # 历史统计指标
+    st.subheader('📌 历史统计指标')
+    hist_stats = compute_stats(df)
+    cols = st.columns(4)
+    for i, (lbl, val) in enumerate(zip(labels, hist_stats)):
+        cols[i%4].metric(lbl, f"{val if not isinstance(val, float) else f'{val:.2f}'}")
+
+# 2. 数据导出f"{lookback_days}天回撤", f"{recent_dd:.2f}")
 
 # 2. 数据导出
 with tabs[1]:
