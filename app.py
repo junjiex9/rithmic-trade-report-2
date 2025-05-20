@@ -132,12 +132,15 @@ with tabs[0]:
     # 累计盈亏趋势
     st.subheader('📈 累计盈亏趋势')
     fig1 = px.line(df, x='时间', y='累计盈亏', title='累计盈亏趋势')
+    fig1.update_yaxes(tickformat='.0f')
     st.plotly_chart(fig1, use_container_width=True)
 
     # 日/小时盈亏
     st.subheader('📊 日/小时盈亏')
     fig2 = px.bar(df.groupby('日期')['盈亏'].sum().reset_index(), x='日期', y='盈亏', title='每日盈亏')
+    fig2.update_yaxes(tickformat='.0f')
     fig3 = px.bar(df.groupby('小时')['盈亏'].mean().reset_index(), x='小时', y='盈亏', title='每小时平均盈亏')
+    fig3.update_yaxes(tickformat='.0f')
     st.plotly_chart(fig2, use_container_width=True)
     st.plotly_chart(fig3, use_container_width=True)
 
