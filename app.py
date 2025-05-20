@@ -184,6 +184,22 @@ with tabs[0]:
         heat = ds.pivot_table(values='SentimentScore', index='Symbol', columns='Date')
         fig8 = px.imshow(heat, aspect='auto', title='舆情热力图')
         st.plotly_chart(fig8, use_container_width=True)
+    
+    # 当日成交明细
+    st.subheader('📅 当日成交明细')
+    trades_today = df[df['时间'].dt.date == datetime.now().date()]
+    st.dataframe(trades_today)
+    
+    # 核心指标
+    st.subheader('📌 核心统计指标')
+    sharpe, winrate, pf, mdd, calmar, recent_dd = compute_metrics(lookback_days)
+    cols = st.columns(6)
+    cols[0].metric('夏普率', f"{sharpe:.2f}")
+    cols[1].metric('胜率', f"{winrate:.2%}")
+    cols[2].metric('盈亏比', f"{pf:.2f}")
+    cols[3].metric('最大回撤', f"{mdd:.2f}")
+    cols[4].metric(f"{lookback_days}天回撤", f"{recent_dd:.2f}")
+    cols[5].metric('Calmar 比率', f"{calmar:.2f}")
 
 # 2. 数据导出
 with tabs[1]:
