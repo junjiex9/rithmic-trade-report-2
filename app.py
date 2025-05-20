@@ -187,8 +187,13 @@ with tabs[1]:
         pdf.set_font('Helvetica','B',14)
         pdf.cell(0,10,'Monte Carlo Distribution',ln=1)
         pdf.set_font('Helvetica','',12)
-        img = px.histogram(sims, nbins=40).to_image(format='png', width=600, height=300)
-        pdf.image(io.BytesIO(img), x=15, y=pdf.get_y()+5, w=180)
+        mc_img = px.histogram(sims, nbins=40).to_image(format='png', width=600, height=300)
+# 写入临时文件后再插入
+tmp_img = 'temp_mc.png'
+with open(tmp_img, 'wb') as f_img:
+    f_img.write(mc_img)
+pdf.image(tmp_img, x=15, y=pdf.get_y()+5, w=180)
+os.remove(tmp_img)
         tmp = 'tmp.pdf'
         pdf.output(tmp)
         pdf_bytes = open(tmp,'rb').read()
