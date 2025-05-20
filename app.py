@@ -153,13 +153,14 @@ with tabs[0]:
     st.plotly_chart(fig4, use_container_width=True)
     st.plotly_chart(fig5, use_container_width=True)
 
-    # Monte Carlo 模拟
+        # Monte Carlo 模拟
     st.subheader('🎲 Monte Carlo 模拟')
     sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
     fig6 = px.histogram(sims, nbins=40, title='Monte Carlo 累积盈亏分布')
+    fig6.update_yaxes(tickformat='.0f')
     st.plotly_chart(fig6, use_container_width=True)
 
-    # 滑点与成交率
+    # 滑点与成交率分析
     if market_file:
         st.subheader('🕳️ 滑点与成交率分析')
         mp = pd.read_csv(market_file)
@@ -167,7 +168,9 @@ with tabs[0]:
         mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True)
         merged = df.merge(mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left')
         merged['滑点'] = merged['价格'] - merged['市场价格']
-        fig7 = px.histogram(merged, x='滑点', nbins=50, title='滑点分布')
+                fig7 = px.histogram(merged, x='滑点', nbins=50, title='滑点分布')
+        fig7.update_yaxes(tickformat='.0f')
+fig7.update_yaxes(tickformat='.0f')
         st.plotly_chart(fig7, use_container_width=True)
     else:
         st.info('请上传市场快照 CSV 以查看滑点分析')
