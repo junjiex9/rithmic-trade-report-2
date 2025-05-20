@@ -69,10 +69,14 @@ def load_and_clean(files):
     df = pd.concat(records, ignore_index=True)
     # 只保留已完成的订单，提取实盘盈亏和成交手数
     df = df[df['Status']=='Filled'][[
-        'Account','Buy/Sell','Symbol','Avg Fill Price','Qty Filled',
+        'Account','Buy/Sell','Symbol','Avg Fill Price',
+        'Qty To Fill','Qty Filled','Position Disposition',
         'Update Time (CST)','Commission Fill Rate','Closed Profit/Loss','上传文件'
     ]]
-    df.columns = ['账户','方向','品种','价格','数量','时间','手续费','盈亏','上传文件']
+    df.columns = [
+        '账户','方向','品种','价格','开仓数量','平仓数量','持仓处置',
+        '时间','手续费','盈亏','上传文件'
+    ]
     df['时间'] = pd.to_datetime(df['时间'], errors='coerce')
     df['方向'] = df['方向'].map({'B':'Buy','S':'Sell'})
     for col in ['价格','数量','手续费','盈亏']:
@@ -142,7 +146,10 @@ with tabs_main[0]:
     tab_today, tab_hist = st.tabs(['📌 当日统计指标','📌 历史统计指标'])
     with tab_today:
         st.subheader('当日交易概览')
-        st.dataframe(trades_today)
+        st.dataframe(trades_today[[
+            '账户','方向','开仓数量','平仓数量','持仓处置',
+            '品种','价格','时间','手续费','盈亏','累计盈亏','日期','小时'
+        ]])
         # 📈 累计盈亏趋势
         fig1 = px.line(trades_today, x='时间', y='累计盈亏', title='累计盈亏趋势')
         fig1.update_yaxes(tickformat=',.0f')
@@ -151,17 +158,28 @@ with tabs_main[0]:
         tmp = trades_today.copy()
         tmp['分钟数'] = tmp['时间'].dt.hour * 60 + tmp['时间'].dt.minute
         tmp['时间标签'] = tmp['分钟数'].apply(lambda m: f"{m}分" if m < 60 else f"{m//60}小时{m%60}分")
-        fig_time = px.bar(tmp.groupby('时间标签')['盈亏'].sum().reset_index(), x='时间标签', y='盈亏', title='时间盈亏')
+        fig_time = px.bar(
+            tmp.groupby('时间标签')['盈亏'].sum().reset_index(),
+            x='时间标签', y='盈亏', title='时间盈亏'
+        )
         fig_time.update_yaxes(tickformat=',.0f')
         st.plotly_chart(fig_time, use_container_width=True)
         # ⏳ 持仓时长分布
         sorted_today = trades_today.sort_values(['账户','品种','时间']).copy()
-        sorted_today['持仓时长'] = sorted_today.groupby(['账户','品种'])['时间'].diff().dt.total_seconds()/60
-        fig4 = px.box(sorted_today, x='账户', y='持仓时长', title='持仓时长分布（分钟）')
+        sorted_today['持仓时长'] = (
+            sorted_today.groupby(['账户','品种'])['时间']
+            .diff().dt.total_seconds()/60
+        )
+        fig4 = px.box(
+            sorted_today, x='账户', y='持仓时长', title='持仓时长分布（分钟）'
+        )
         fig4.update_yaxes(tickformat=',.0f')
         st.plotly_chart(fig4, use_container_width=True)
         # 🎲 Monte Carlo 模拟
-        sims = [np.random.choice(trades_today['盈亏'], len(trades_today), replace=True).cumsum()[-1] for _ in range(500)]
+        sims = [
+            np.random.choice(trades_today['盈亏'], len(trades_today), replace=True).cumsum()[-1]
+            for _ in range(500)
+        ]
         fig5 = px.histogram(sims, nbins=40, title='Monte Carlo 累积盈亏分布')
         fig5.update_yaxes(tickformat=',.0f')
         st.plotly_chart(fig5, use_container_width=True)
@@ -169,24 +187,31 @@ with tabs_main[0]:
         if market_file:
             mp = pd.read_csv(market_file)
             mp['Time']=pd.to_datetime(mp['Time'], errors='coerce')
-            mp.rename(columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True)
-            md = trades_today.merge(mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left')
-            md['滑点']=md['价格']-md['市场价格']
-            fig6=px.histogram(md, x='滑点', title='滑点分布')
+            mp.rename(
+                columns={'MarketPrice':'市场价格','Symbol':'品种'}, inplace=True
+            )
+            md = trades_today.merge(
+                mp, left_on=['品种','时间'], right_on=['品种','Time'], how='left'
+            )
+            md['滑点'] = md['价格'] - md['市场价格']
+            fig6 = px.histogram(md, x='滑点', title='滑点分布')
             fig6.update_yaxes(tickformat=',.0f')
             st.plotly_chart(fig6, use_container_width=True)
         # 📣 舆情热力图
         if sent_file:
-            ss=pd.read_csv(sent_file); ss['Date']=pd.to_datetime(ss['Date'], errors='coerce').dt.date
-            heat=ss.pivot_table(values='SentimentScore', index='Symbol', columns='Date')
-            fig7=px.imshow(heat, aspect='auto', title='舆情热力图')
+            ss = pd.read_csv(sent_file)
+            ss['Date'] = pd.to_datetime(ss['Date'], errors='coerce').dt.date
+            heat = ss.pivot_table(
+                values='SentimentScore', index='Symbol', columns='Date'
+            )
+            fig7 = px.imshow(heat, aspect='auto', title='舆情热力图')
             st.plotly_chart(fig7, use_container_width=True)
         # 核心统计指标
         st.subheader('📌 当日核心统计指标')
-        cols=st.columns(4)
-        for i,(lbl,val) in enumerate(zip(labels,today_stats)):
-            cols[i%4].metric(lbl,f"{val:.2f}")
-    with tab_hist:
+        cols = st.columns(4)
+        for i, (lbl, val) in enumerate(zip(labels, today_stats)):
+            cols[i%4].metric(lbl, f"{val:.2f}")
+    with tab_hist:  
         st.subheader('历史交易概览')
         st.dataframe(hist_df)
         # 同上，历史视图使用相同逻辑，只需更改数据源
