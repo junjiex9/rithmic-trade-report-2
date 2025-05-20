@@ -171,7 +171,7 @@ with tabs[1]:
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-    # 下载 PDF 报告
+        # 下载 PDF 报告
     with col_pdf:
         sims = [np.random.choice(df['盈亏'], len(df), replace=True).cumsum()[-1] for _ in range(500)]
         pdf = FPDF('P','mm','A4')
@@ -216,7 +216,7 @@ with tabs[1]:
             pdf_bytes = f_pdf.read()
         st.download_button('下载 PDF 报告', pdf_bytes, file_name='report.pdf', mime='application/pdf')
 
-# 3. 设置
+# 3. 设置 设置
 with tabs[2]:
     st.subheader('⚙️ 设置')
     st.markdown(
